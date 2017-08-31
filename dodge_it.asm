@@ -90,7 +90,6 @@ graphicsData:
 	db %01110111
 	db %00010001
 	db %00010111
-A0814: ; Spuriously generated label ?
 	; 6, 7
 	db %01000111
 	db %01000001
@@ -154,19 +153,19 @@ A0853: ;Used by menu...
 ;  characters.
 ; 
 ; Bitmasks for draw.glyph
-draw.noGlyph       = $80
+draw.drawRect       = $80
 draw.drawAttribute = $C0
 ; Local constants
 draw.colorMask     = $C0
 draw.soundMask     = $C0
 draw.noSoundMask   = $3F
 ; Args:
-draw.glyph  = 0 ; r0 - Glyph (should be 0x80 or (0xC0?))
+draw.glyph  = 0 ; r0 - Glyph
 draw.xpos   = 1 ; r1 - X pos
 draw.ypos   = 2 ; r2 - Y pos & color (upper 2 bits)
 draw.width  = 4 ; r4 - Width
 draw.height = 5 ; r5 - Height
-; Uses
+; Locals
 draw.data   = 3 ; r3 as data
 draw.xcount = 6 ; r6 as h_count
 draw.ycount = 7 ; r7 as v_count
@@ -878,7 +877,7 @@ handleBall:
 	LR   draw.width, A       ; 0a66 54
 	LR   draw.height, A      ; 0a67 55
 	; Color?
-	LI   draw.noGlyph        ; 0a68 20 80
+	LI   draw.drawRect        ; 0a68 20 80
 	LR   draw.glyph, A       ; 0a6a 50
 	; Undraw player
 	PI   drawBox               ; 0a6b 28 08 62
@@ -1120,7 +1119,7 @@ A0b55:          ADC                      ; 0b55 8e
                 NI   $7f                 ; 0b57 21 7f ; Should be $3F ?
                 OM                       ; 0b59 8b
                 LR   draw.ypos, A        ; 0b5a 52
-                LI   draw.noGlyph        ; 0b5b 20 80
+                LI   draw.drawRect        ; 0b5b 20 80
                 LR   draw.glyph, A       ; 0b5d 50
                 LISU 7                   ; 0b5e 67
                 LISL 0                   ; 0b5f 68
@@ -1543,7 +1542,7 @@ initRoutine:
 
 ; Clear screen
 	; Set properties
-	LI   draw.noGlyph        ; 0cdd 20 80
+	LI   draw.drawRect        ; 0cdd 20 80
 	LR   draw.glyph, A       ; 0cdf 50
 	; Set x and y pos
 	LIS  $0                  ; 0ce0 70
@@ -1663,7 +1662,7 @@ A0d1e:          DCI  A0843               ; 0d1e 2a 08 43
 restartGame:          
 	; Draw playfield
 	; Set rendering properties
-	LI   draw.noGlyph        ; 0d54 20 80
+	LI   draw.drawRect        ; 0d54 20 80
 	LR   draw.glyph, A       ; 0d56 50
 	; Set x pos
 	LI   $10                 ; 0d57 20 10
@@ -1711,7 +1710,7 @@ restartGame:
                 AS   $3                  ; 0d7d c3
                 LR   draw.height, A      ; 0d7e 55
 	; Set rendering properties
-	LI   draw.noGlyph        ; 0d7f 20 80
+	LI   draw.drawRect        ; 0d7f 20 80
 	LR   draw.glyph, A       ; 0d81 50
 	PI   drawBox             ; 0d82 28 08 62
 				
@@ -1899,28 +1898,40 @@ A0e41:
 	JMP  mainLoop               ; 0e41 29 0d a0
 
 ; Game Over / Death Animation
-gameOver:          
-				; Set ypos ?
-				LI   $a4                 ; 0e44 20 a4
-                LR   $2,A                ; 0e46 52
-                LISU 4                   ; 0e47 64
-                LISL 6                   ; 0e48 6e
-                LI   $14                 ; 0e49 20 14
-                LR   (IS),A              ; 0e4b 5c
-A0e4c:          PI   drawSpiral               ; 0e4c 28 0f 0a
-                LISU 4                   ; 0e4f 64
-                LISL 6                   ; 0e50 6e
-                DS   (IS)                ; 0e51 3c
-                LR   J,W                 ; 0e52 1e
-                LR   A,$2                ; 0e53 42
-                AI   $40                 ; 0e54 24 40
-                BNC   A0e5a            ; 0e56 92 03
-                AI   $40                 ; 0e58 24 40
-A0e5a:          NI   $c0                 ; 0e5a 21 c0
-                AI   $24                 ; 0e5c 24 24
-                LR   $2,A                ; 0e5e 52
-                LR   W,J                 ; 0e5f 1d
-                BNZ   A0e4c            ; 0e60 94 eb
+gameOver:
+	; ypos = $24
+	; color = $80
+	LI   $a4                 ; 0e44 20 a4
+	LR   draw.ypos, A        ; 0e46 52
+	; o46 = $14 (spiral radius?)
+	LISU 4                   ; 0e47 64
+	LISL 6                   ; 0e48 6e
+	LI   $14                 ; 0e49 20 14
+	LR   (IS),A              ; 0e4b 5c
+gameOver.spiralLoop:
+	PI   drawSpiral          ; 0e4c 28 0f 0a
+	; o46--
+	LISU 4                   ; 0e4f 64
+	LISL 6                   ; 0e50 6e
+	DS   (IS)                ; 0e51 3c
+	; save flags
+	LR   J,W                 ; 0e52 1e
+	; color++
+	; if(color == 0)
+	;  color++
+	; ypos = $24
+	LR   A, draw.ypos        ; 0e53 42
+	AI   $40                 ; 0e54 24 40
+	BNC   A0e5a            ; 0e56 92 03
+	AI   $40                 ; 0e58 24 40
+A0e5a:
+	NI   $c0                 ; 0e5a 21 c0
+	AI   $24                 ; 0e5c 24 24
+	LR   draw.ypos,A         ; 0e5e 52
+	; restore flags
+	; loop back if o46 != 0
+	LR   W,J                 ; 0e5f 1d
+	BNZ   gameOver.spiralLoop            ; 0e60 94 eb
 				
 				; Delay
                 LIS  $0                  ; 0e62 70
@@ -2086,14 +2097,14 @@ A0ef1:          LR   A,(IS)              ; 0ef1 4c
 ; r4 - Width
 ; r5 - Height
 drawSpiral:          
-				LR   K,P                 ; 0f0a 08
-				; Set something ?
-                LI   draw.noGlyph        ; 0f0b 20 80
-                LR   draw.glyph, A       ; 0f0d 50
-				; Set x pos
-				; Where does y pos get set?
+	LR   K,P                 ; 0f0a 08
+	; Set properties to draw a rect
+	LI   draw.drawRect        ; 0f0b 20 80
+	LR   draw.glyph, A       ; 0f0d 50
+				; xpos = $34
+				; Note: ypos is set before entering this function
                 LI   $34                 ; 0f0e 20 34
-                LR   $1,A                ; 0f10 51
+                LR   draw.xpos, A        ; 0f10 51
                 LISU 2                   ; 0f11 62
                 LISL 4                   ; 0f12 6c
 				; Set width/height to 1
@@ -2105,7 +2116,7 @@ drawSpiral:
                 LR   (IS)+,A             ; 0f17 5d
                 LR   (IS)+,A             ; 0f18 5d
                 LR   (IS)-,A             ; 0f19 5e
-				; o36 = o46 ?
+				; o36 = o46
                 LISU 4                   ; 0f1a 64
                 LR   A,(IS)              ; 0f1b 4c
                 LISU 3                   ; 0f1c 63
