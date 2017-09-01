@@ -785,6 +785,7 @@ maybeSpawn.exit:
 ; Args
 drawTimer.xpos = 0
 drawTimer.ypos = 2
+; ISAR should point to the lower byte of the score
 ; Local Constants
 drawTimer.yOffset = $0A
 drawTimer.xDelta  = <[-5]
@@ -1549,9 +1550,9 @@ initRoutine:
 	LR   draw.xpos, A        ; 0ce1 51
 	LR   draw.ypos, A        ; 0ce2 52
 	; width = screen width
-	; height = screen height
 	LI   gfx.screenWidth     ; 0ce3 20 80
 	LR   draw.width, A       ; 0ce5 54
+	; height = screen height
 	LI   gfx.screenHeight    ; 0ce6 20 40
 	LR   draw.height, A      ; 0ce8 55
 	PI   drawBox             ; 0ce9 28 08 62
@@ -1932,12 +1933,12 @@ A0e5a:
 	; loop back if o46 != 0
 	LR   W,J                 ; 0e5f 1d
 	BNZ   gameOver.spiralLoop            ; 0e60 94 eb
-				
-				; Delay
-                LIS  $0                  ; 0e62 70
-                LR   $0,A                ; 0e63 50
-                PI   delay.variable      ; 0e64 28 09 9a
-				
+
+	; delay.variable($0)
+	LIS  $0                  ; 0e62 70
+	LR   delay.count, A      ; 0e63 50
+	PI   delay.variable      ; 0e64 28 09 9a
+
 				; Set color depending on who died
 				; 1P - Red
 				; 2P, player 1 - Green
@@ -1961,18 +1962,17 @@ A0e78:          AI   $24                 ; 0e78 24 24
                 LI   $14                 ; 0e7d 20 14
                 LR   (IS),A              ; 0e7f 5c
                 PI   drawSpiral               ; 0e80 28 0f 0a
-				
-				; Delay
-                LI   $28                 ; 0e83 20 28
-                LR   $0,A                ; 0e85 50
-                PI   delay.variable      ; 0e86 28 09 9a
-				
-				; Check if two players
-                LISU 7                   ; 0e89 67
-                LISL 5                   ; 0e8a 6d
-                LIS  $1                  ; 0e8b 71
-                NS   (IS)                ; 0e8c fc
-				; If so, jump ahead
+
+	; Delay
+	LI   $28                 ; 0e83 20 28
+	LR   delay.count,A       ; 0e85 50
+	PI   delay.variable      ; 0e86 28 09 9a
+	
+	; Check if two players
+	SETISAR gameMode         ; 0e89 67 6d
+	LIS  mode.2playerMask    ; 0e8b 71
+	NS   (IS)                ; 0e8c fc
+	; If so, jump ahead
                 BNZ   A0ec6            ; 0e8d 94 38
 		; One player case
 				; r6/r7 = timer
@@ -2003,20 +2003,20 @@ A0ea5:          LR   A,$7                ; 0ea5 47
                 LR   (IS)-,A             ; 0ea6 5e
                 LR   A,$6                ; 0ea7 46
                 LR   (IS)+,A             ; 0ea8 5d
-				; Set y pos
-                LI   $40                 ; 0ea9 20 40
-                LR   $2,A                ; 0eab 52
-				; Set x pos
-                LI   $54                 ; 0eac 20 54
-                LR   $0,A                ; 0eae 50
-                PI   drawTimer               ; 0eaf 28 0a 20
-				
-				; Delay
-A0eb2:          LI   $40                 ; 0eb2 20 40
-                LR   $0,A                ; 0eb4 50
-                PI   delay.variable      ; 0eb5 28 09 9a
-				; Read controllers
-                PI   readControllers               ; 0eb8 28 09 10
+	; Set color
+	LI   $40                 ; 0ea9 20 40
+	LR   draw.ypos, A        ; 0eab 52
+	; Set x pos
+	LI   $54                 ; 0eac 20 54
+	LR   draw.xpos, A        ; 0eae 50
+	PI   drawTimer           ; 0eaf 28 0a 20
+A0eb2:
+	; Delay
+	LI   $40                 ; 0eb2 20 40
+	LR   delay.count, A      ; 0eb4 50
+	PI   delay.variable      ; 0eb5 28 09 9a
+	; Read controllers
+	PI   readControllers     ; 0eb8 28 09 10
 				; If controller is pushed, keep gametype?
                 LISL 0                   ; 0ebb 68
                 LIS  $0                  ; 0ebc 70
@@ -2277,7 +2277,7 @@ A0f83:          LI   $80                 ; 0f83 20 80
                 JMP  mainLoop               ; 0f98 29 0d a0
 				
     db $b2 ; Unused?
-	; Free space
+	; Free space - 94 bytes!
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
