@@ -10,6 +10,9 @@
 ;
 ; Thanks to http://channelf.se/veswiki/ for making this possible
 ;
+; A text file of the instruction manual can be found here:
+; http://channelf.se/gallery/txt/videocart16.txt
+;
 ; Build Instructions
 ;  dasm dodge_it.asm -f3 -ododge_it.bin
 
@@ -153,7 +156,7 @@ A0853: ;Used by menu...
 ;  characters.
 ; 
 ; Bitmasks for draw.glyph
-draw.drawRect       = $80
+draw.drawRect      = $80
 draw.drawAttribute = $C0
 ; Local constants
 draw.colorMask     = $C0
@@ -329,71 +332,80 @@ draw.delay:
 ; Modifies the contents of o76 and o77
 ; No input arguments
 ; RNG (probably)
-RNG.seedBottom = 076
-RNG.seedTop = 077
+RNG.seedHi = 076
+RNG.seedLo = 077
 ; Returns in registers
-RNG.regLo = $6
-RNG.regHi = $7
+RNG.regHi = $6
+RNG.regLo = $7
 
 ; Locals
-roll_RNG.tempISAR = 8 ; r8 is used as temp ISAR
+RNG.tempISAR = 8 ; r8 is used as temp ISAR
 
-roll_RNG:          
+RNG.roll:
 	; Save the ISAR in r8
 	LR   A,IS                ; 08c1 0a
-	LR   roll_RNG.tempISAR, A; 08c2 58
-				; r6 = o77*2 + o76
-				SETISAR RNG.seedTop      ; 08c3 67 6f
-                LR   A,(IS)-             ; 08c5 4e
-                SL   1                   ; 08c6 13
-                AS   (IS)+               ; 08c7 cd
-                LR   RNG.regLo, A        ; 08c8 56
-				; r7 = o77*2 ??
-                LR   A,(IS)              ; 08c9 4c
-                AS   (IS)                ; 08ca cc
-                LR   RNG.regHi, A        ; 08cb 57
-				; r6 = r6*2 (+1 if o77*2 carried over) ?
-                LR   J,W                 ; 08cc 1e ; save status reg
-                LR   A, RNG.regLo        ; 08cd 46
-                SL   1                   ; 08ce 13
-                LR   W,J                 ; 08cf 1d ; reload status reg
-                LNK                      ; 08d0 19
-                LR   RNG.regLo, A        ; 08d1 56
-				; r7 = r7*2
-                LR   A, RNG.regHi        ; 08d2 47
-                AS   RNG.regHi           ; 08d3 c7
-                LR   RNG.regHi, A        ; 08d4 57
-				; r6 = r6*2 (+1 if r7*2 carried over) ?
-                LR   J,W                 ; 08d5 1e
-                LR   A, RNG.regLo        ; 08d6 46
-                SL   1                   ; 08d7 13
-                LR   W,J                 ; 08d8 1d
-                LNK                      ; 08d9 19
-                LR   RNG.regLo, A        ; 08da 56
-				; r7 = r7 + o77
-                LR   A, RNG.regHi        ; 08db 47
-                AS   (IS)-               ; 08dc ce
-                LR   RNG.regHi, A        ; 08dd 57
-				; r6 = r6 (+1 if r7+077 carried) + o76
-                LR   A, RNG.regLo        ; 08de 46
-                LNK                      ; 08df 19
-                AS   (IS)+               ; 08e0 cd
-                LR   RNG.regLo, A        ; 08e1 56
-				; r7 = r7 + 0x19
-				; o77 = the same
-                LR   A, RNG.regHi        ; 08e2 47
-                AI   $19                 ; 08e3 24 19
-                LR   RNG.regHi, A        ; 08e5 57
-                LR   (IS)-,A             ; 08e6 5e
-				; r6 = r6 (+1 if r7+0x19 carried) + 0x36
-				; o76 = the same
-                LR   A, RNG.regLo        ; 08e7 46
-                LNK                      ; 08e8 19
-                AI   $36                 ; 08e9 24 36
-                LR   RNG.regLo, A        ; 08eb 56
-                LR   (IS)+,A             ; 08ec 5d
-	; Reload ISAR
-	LR   A, roll_RNG.tempISAR; 08ed 48
+	LR   RNG.tempISAR, A; 08c2 58
+	
+	; r6 = o77*2 + o76
+	SETISAR RNG.seedLo      ; 08c3 67 6f
+	LR   A,(IS)-             ; 08c5 4e
+	SL   1                   ; 08c6 13
+	AS   (IS)+               ; 08c7 cd
+	LR   RNG.regHi, A        ; 08c8 56
+	
+	; r6,7 = (r6,77)*2
+	;  do the lo byte
+	LR   A,(IS)              ; 08c9 4c
+	AS   (IS)                ; 08ca cc
+	LR   RNG.regLo, A        ; 08cb 57
+	;  do the hi byte
+	LR   J,W                 ; 08cc 1e ; save status reg
+	LR   A, RNG.regHi        ; 08cd 46
+	SL   1                   ; 08ce 13
+	LR   W,J                 ; 08cf 1d ; reload status reg
+	LNK                      ; 08d0 19
+	LR   RNG.regHi, A        ; 08d1 56
+	
+	; r6,7 = (r6,7)*2
+	;  do the lo byte
+	LR   A, RNG.regLo        ; 08d2 47
+	AS   RNG.regLo           ; 08d3 c7
+	LR   RNG.regLo, A        ; 08d4 57
+	;  do the hi byte
+	LR   J,W                 ; 08d5 1e
+	LR   A, RNG.regHi        ; 08d6 46
+	SL   1                   ; 08d7 13
+	LR   W,J                 ; 08d8 1d
+	LNK                      ; 08d9 19
+	LR   RNG.regHi, A        ; 08da 56
+	
+	; r6,7 += r66,67
+	;  do the lo byte
+	LR   A, RNG.regLo        ; 08db 47
+	AS   (IS)-               ; 08dc ce
+	LR   RNG.regLo, A        ; 08dd 57
+	;  do the hi byte
+	LR   A, RNG.regHi        ; 08de 46
+	LNK                      ; 08df 19
+	AS   (IS)+               ; 08e0 cd
+	LR   RNG.regHi, A        ; 08e1 56
+	
+	; r6,r7 += 0x3619
+	; o76,77 = r6,r7
+	;  do the lo byte
+	LR   A, RNG.regLo        ; 08e2 47
+	AI   $19                 ; 08e3 24 19
+	LR   RNG.regLo, A        ; 08e5 57
+	LR   (IS)-,A             ; 08e6 5e
+	;  do the hi byte
+	LR   A, RNG.regHi        ; 08e7 46
+	LNK                      ; 08e8 19
+	AI   $36                 ; 08e9 24 36
+	LR   RNG.regHi, A        ; 08eb 56
+	LR   (IS)+,A             ; 08ec 5d
+	
+	; Restore ISAR
+	LR   A, RNG.tempISAR; 08ed 48
 	LR   IS,A                ; 08ee 0b
 	; Return
 	POP                      ; 08ef 1c
@@ -420,7 +432,7 @@ menu:
 	LR   menu.waitHi, A      ; 08f8 52
 	
 menu.pollInput:
-	PI   roll_RNG            ; 08f9 28 08 c1
+	PI   RNG.roll            ; 08f9 28 08 c1
 	DCI  A0853               ; 08fc 2a 08 53
 	; Read console buttons
 	LIS  $0                  ; 08ff 70
@@ -458,41 +470,47 @@ controller2 = 071 ; Controller 2
 
 readControllers:          
 	SETISAR controller1      ; 0910 67 68
+	
 	; Clear controllers
 	LIS  $0                  ; 0912 70
 	OUTS 1                   ; 0913 b1
 	OUTS 4                   ; 0914 b4
+	
 	; Save controller 1 in o70
 	INS  1                   ; 0915 a1
 	LR   (IS)+,A             ; 0916 5d
+	
 	; Save controller 2 in 071
 	INS  4                   ; 0917 a4
 	LR   (IS)-,A             ; 0918 5e
-				; Add controller 1 & 2
-                AS   (IS)                ; 0919 cc
-				; Take the two's complement
-                INC                      ; 091a 1f
-                COM                      ; 091b 18
-				; If the result is zero, return
-                BZ   A0923               ; 091c 84 06
-				; else, shuffle RNG ?
-				; switch to o77
-                SETISARL RNG.seedTop     ; 091e 6f
-                LIS  $1                  ; 091f 71
-				; o77 = o77 + 1
-                AS   (IS)                ; 0920 cc
-                LR   (IS)-,A             ; 0921 5e
-				; o76--
-                DS   (IS)                ; 0922 3c
-				; Return
-A0923:          POP                      ; 0923 1c
+	
+	; Add controller 1 & 2
+	AS   (IS)                ; 0919 cc
+	; Take the two's complement
+	INC                      ; 091a 1f
+	COM                      ; 091b 18
+	; If the result is zero, return
+	BZ   readControllers.exit               ; 091c 84 06
+	
+	; else, shuffle RNG ?
+	; switch to o77
+	SETISARL RNG.seedLo     ; 091e 6f
+	LIS  $1                  ; 091f 71
+	; o77 = o77 + 1
+	AS   (IS)                ; 0920 cc
+	LR   (IS)-,A             ; 0921 5e
+	; o76--
+	DS   (IS)                ; 0922 3c
+	
+readControllers.exit:
+	POP                      ; 0923 1c
 
 ; HandlePlayerMovement
 playerHandler:
 	LR   K,P                 ; 0924 08
 	PI   readControllers               ; 0925 28 09 10
 	; Check if LSB of RNG is set
-	SETISAR RNG.seedTop      ; 0928 67 6f
+	SETISAR RNG.seedLo      ; 0928 67 6f
                 LIS  $1                  ; 092a 71
                 NS   (IS)                ; 092b fc
                 LIS  $0                  ; 092c 70
@@ -689,14 +707,14 @@ maybeSpawn:
 maybeSpawn.reroll:          
 	; keep rerolling RNG until r6 and r7 are in some range
 	; r1 = r6, r2 = r7
-	PI   roll_RNG            ; 09c3 28 08 c1
-	LR   A, RNG.regLo        ; 09c6 46
+	PI   RNG.roll            ; 09c3 28 08 c1
+	LR   A, RNG.regHi        ; 09c6 46
 	CI   $10                 ; 09c7 25 10
 	BC   maybeSpawn.reroll   ; 09c9 82 f9
 	CI   $57                 ; 09cb 25 57
 	BNC  maybeSpawn.reroll   ; 09cd 92 f5
                 LR   $1,A                ; 09cf 51
-	LR   A, RNG.regHi        ; 09d0 47
+	LR   A, RNG.regLo        ; 09d0 47
 	CI   $10                 ; 09d1 25 10
 	BC   maybeSpawn.reroll   ; 09d3 82 ef
 	CI   $37                 ; 09d5 25 37
@@ -707,7 +725,7 @@ maybeSpawn.reroll:
                 LR   $0,A                ; 09dc 50
 	; use lower 2 bits of r6 as index to jump table
 	LIS  %00000011           ; 09dd 73
-	NS   RNG.regLo           ; 09de f6
+	NS   RNG.regHi           ; 09de f6
 	; jump to (jump_table + 2*A)
 	DCI  maybeSpawn.jumpTable; 09df 2a 09 e6
 	ADC                      ; 09e2 8e
@@ -1282,7 +1300,7 @@ A0be8:          SR   4                   ; 0be8 14
 A0bf8:          LI   $80                 ; 0bf8 20 80
                 LR   $3,A                ; 0bfa 53
                 PI   playSound               ; 0bfb 28 0c c8
-                PI   roll_RNG               ; 0bfe 28 08 c1
+                PI   RNG.roll               ; 0bfe 28 08 c1
 				
                 LR   A,$2                ; 0c01 42
                 CI   $01                 ; 0c02 25 01
@@ -1310,8 +1328,10 @@ A0bf8:          LI   $80                 ; 0bf8 20 80
                 LR   A,$b                ; 0c1e 4b
                 LR   $0,A                ; 0c1f 50
 				
-A0c20:          LISU 7                   ; 0c20 67
-                LISL 5                   ; 0c21 6d
+A0c20:
+	SETISAR gameMode
+;	LISU 7                   ; 0c20 67
+ ;               LISL 5                   ; 0c21 6d
                 LIS  $0                  ; 0c22 70
                 AS   (IS)                ; 0c23 cc
                 BP   A0c29             ; 0c24 81 04
@@ -1378,7 +1398,7 @@ A0c59:          LR   (IS),A              ; 0c59 5c
 ;  ISAR[x] to ISAR[x+2]
 A0c5f:          LR   K,P                 ; 0c5f 08
 				; Reroll RNG until r6 is non-zero
-A0c60:          PI   roll_RNG               ; 0c60 28 08 c1
+A0c60:          PI   RNG.roll               ; 0c60 28 08 c1
                 LIS  $0                  ; 0c63 70
                 AS   $6                  ; 0c64 c6
                 BZ   A0c60             ; 0c65 84 fa
@@ -1512,18 +1532,19 @@ flash.exit:
 playSound.sound = 3
 
 playSound:      
-				LR   A,$b                ; 0cc8 4b
+	; if(curBall < MAX_PLAYERS)
+	;  play the sound
+	; return
+	LR   A, main.curBall     ; 0cc8 4b
 	CI   [MAX_PLAYERS-1]     ; 0cc9 25 01
 	BC   playSound.exit      ; 0ccb 82 03
-
 	LR   A, playSound.sound  ; 0ccd 43
 	OUTS 5                   ; 0cce b5
-
 playSound.exit:          
 	POP                      ; 0ccf 1c
 
 ; Init Game
-initRoutine:    
+initRoutine:
 	LISU 7                   ; 0cd0 67
 	LISL 7                   ; 0cd1 6f
 	; Enable data from controllers ?
@@ -1601,45 +1622,50 @@ initRoutine:
 	PI   menu               ; 0d0f 28 08 f0
 				
 				; Load game mode into o75
-                LISU 7                   ; 0d12 67
-                LISL 5                   ; 0d13 6d
+	SETISAR gameMode
+    ;            LISU 7                   ; 0d12 67
+     ;           LISL 5                   ; 0d13 6d
                 SR   1                   ; 0d14 12
+				; DC was set in the menu
                 ADC                      ; 0d15 8e
                 LM                       ; 0d16 16
                 LR   (IS),A              ; 0d17 5c
 				
 ; Shuffle gametype
-A0d18:          LISU 7                   ; 0d18 67
-                LISL 5                   ; 0d19 6d
+A0d18:          
+	SETISAR gameMode
+;			LISU 7                   ; 0d18 67
+ ;               LISL 5                   ; 0d19 6d
                 LR   A,(IS)              ; 0d1a 4c
                 NI   $03                 ; 0d1b 21 03
                 LR   (IS),A              ; 0d1d 5c
 
-A0d1e:          DCI  A0843               ; 0d1e 2a 08 43
-                PI   roll_RNG            ; 0d21 28 08 c1
+A0d1e:
+	DCI  A0843               ; 0d1e 2a 08 43
+	PI   RNG.roll            ; 0d21 28 08 c1
 				
                 LM                       ; 0d24 16
-                NS   $6                  ; 0d25 f6
+                NS   RNG.regHi           ; 0d25 f6
                 LR   $8,A                ; 0d26 58
                 LM                       ; 0d27 16
-                NS   $6                  ; 0d28 f6
+                NS   RNG.regHi           ; 0d28 f6
                 SL   1                   ; 0d29 13
                 SL   1                   ; 0d2a 13
                 AS   $8                  ; 0d2b c8
-                BNC   A0d1e            ; 0d2c 92 f1
+                BNC   A0d1e              ; 0d2c 92 f1
 				
                 LM                       ; 0d2e 16
-                NS   $6                  ; 0d2f f6
-                BZ   A0d1e             ; 0d30 84 ed
+                NS   RNG.regHi           ; 0d2f f6
+                BZ   A0d1e               ; 0d30 84 ed
 				
                 LM                       ; 0d32 16
-                NS   $6                  ; 0d33 f6
-                BZ   A0d1e             ; 0d34 84 e9
+                NS   RNG.regHi           ; 0d33 f6
+                BZ   A0d1e               ; 0d34 84 e9
 				
-                LR   A,$6                ; 0d36 46
+                LR   A, RNG.regHi        ; 0d36 46
                 LR   $a,A                ; 0d37 5a
                 LM                       ; 0d38 16
-                NS   $7                  ; 0d39 f7
+                NS   RNG.regLo           ; 0d39 f7
                 AS   (IS)                ; 0d3a cc
                 LR   (IS)-,A             ; 0d3b 5e
 
@@ -1680,47 +1706,46 @@ restartGame:
 	; Draw box
 	PI   drawBox               ; 0d63 28 08 62
 				
-			; Draw inner box
-				; xpos = o62
-                LISU 6                   ; 0d66 66
-                LISL 2                   ; 0d67 6a
+	; Draw inner box
+	; xpos = o62
+	SETISAR bounds.left      ; 0d66 66 6a
 	LR   A,(IS)              ; 0d68 4c
 	LR   draw.xpos, A        ; 0d69 51
-				; width = -(o62 + o60)
-                LISL 0                   ; 0d6a 68
-                AS   (IS)                ; 0d6b cc
-                COM                      ; 0d6c 18
-                INC                      ; 0d6d 1f
-                LR   $4,A                ; 0d6e 54
-				; set width
-                LI   $30                 ; 0d6f 20 30
-                NS   $a                  ; 0d71 fa
-                SR   4                   ; 0d72 14
-                LR   $3,A                ; 0d73 53
-                AS   $4                  ; 0d74 c4
-                LR   draw.width, A       ; 0d75 54
-				; set ypos
-                LISL 5                   ; 0d76 6d
-                LR   A,(IS)              ; 0d77 4c
-                LR   draw.ypos, A        ; 0d78 52
-				; set height
-                LISL 3                   ; 0d79 6b
-                AS   (IS)                ; 0d7a cc
-                COM                      ; 0d7b 18
-                INC                      ; 0d7c 1f
-                AS   $3                  ; 0d7d c3
-                LR   draw.height, A      ; 0d7e 55
+	; width = -(o62 + o60)
+	SETISARL bounds.rightEnemy ; 0d6a 68
+	AS   (IS)                ; 0d6b cc
+	COM                      ; 0d6c 18
+	INC                      ; 0d6d 1f
+	LR   draw.width, A       ; 0d6e 54
+	; r3 = (reg_a & $30) >> 4 // VERIFY: reg_a contains the player's size
+	; width += r3
+	LI   $30                 ; 0d6f 20 30
+	NS   $a                  ; 0d71 fa
+	SR   4                   ; 0d72 14
+	LR   $3,A                ; 0d73 53
+	AS   draw.width          ; 0d74 c4
+	LR   draw.width, A       ; 0d75 54
+	; set ypos (color is blank)
+	SETISARL bounds.top                  ; 0d76 6d
+	LR   A,(IS)              ; 0d77 4c
+	LR   draw.ypos, A        ; 0d78 52
+	; height = -(top - bottom) + temp // temp is player size
+	SETISARL bounds.bottomEnemy          ; 0d79 6b
+	AS   (IS)                ; 0d7a cc
+	COM                      ; 0d7b 18
+	INC                      ; 0d7c 1f
+	AS   $3                  ; 0d7d c3
+	LR   draw.height, A      ; 0d7e 55
 	; Set rendering properties
 	LI   draw.drawRect        ; 0d7f 20 80
 	LR   draw.glyph, A       ; 0d81 50
 	PI   drawBox             ; 0d82 28 08 62
-				
-				; Clear timer
-                LISU 6                   ; 0d85 66
-                LISL 6                   ; 0d86 6e
-                LIS  $0                  ; 0d87 70
-                LR   (IS)+,A             ; 0d88 5d
-                LR   (IS)+,A             ; 0d89 5d
+	
+	; timer = 0
+	SETISAR timer.hiByte     ; 0d85 66 6e
+	LIS  $0                  ; 0d87 70
+	LR   (IS)+,A             ; 0d88 5d
+	LR   (IS)+,A             ; 0d89 5d
 
 	; Do something for 2 balls?
 	LIS  $0                  ; 0d8a 70
@@ -1743,9 +1768,10 @@ A0d8b:
                 LISL 2                   ; 0d9d 6a
                 LIS  $0                  ; 0d9e 70
                 LR   (IS),A              ; 0d9f 5c
-; MAIN LOOP ?
-				; Clear sound
-mainLoop:          
+
+; MAIN LOOP 
+mainLoop:
+	; Clear sound
 	LIS  $0                  ; 0da0 70
 	OUTS 5                   ; 0da1 b5
 				
@@ -1875,8 +1901,9 @@ A0dfd:          LISU 7                   ; 0dfd 67
                 LR   $b,A                ; 0e28 5b
                 PI   handleBall               ; 0e29 28 0a 53
 				
-                LISU 7                   ; 0e2c 67
-                LISL 5                   ; 0e2d 6d
+				SETISAR gameMode
+;                LISU 7                   ; 0e2c 67
+ ;               LISL 5                   ; 0e2d 6d
                 LIS  $1                  ; 0e2e 71
                 NS   (IS)                ; 0e2f fc
                 BZ   A0e36             ; 0e30 84 05
@@ -1902,7 +1929,7 @@ A0e41:
 gameOver:
 	; ypos = $24
 	; color = $80
-	LI   $a4                 ; 0e44 20 a4
+	LI   $80 | $24 ;$a4                 ; 0e44 20 a4
 	LR   draw.ypos, A        ; 0e46 52
 	; o46 = $14 (spiral radius?)
 	LISU 4                   ; 0e47 64
@@ -1943,8 +1970,9 @@ A0e5a:
 				; 1P - Red
 				; 2P, player 1 - Green
 				; 2P, player 2 - Blue
-                LISU 7                   ; 0e67 67
-                LISL 5                   ; 0e68 6d
+				SETISAR gameMode
+;                LISU 7                   ; 0e67 67
+;                LISL 5                   ; 0e68 6d
                 LIS  $1                  ; 0e69 71
                 NS   (IS)                ; 0e6a fc
                 LI   $80                 ; 0e6b 20 80
@@ -2006,9 +2034,9 @@ A0ea5:          LR   A,$7                ; 0ea5 47
 	; Set color
 	LI   $40                 ; 0ea9 20 40
 	LR   draw.ypos, A        ; 0eab 52
-	; Set x pos
+	; Set glyph
 	LI   $54                 ; 0eac 20 54
-	LR   draw.xpos, A        ; 0eae 50
+	LR   draw.glyph, A        ; 0eae 50
 	PI   drawTimer           ; 0eaf 28 0a 20
 A0eb2:
 	; Delay
@@ -2090,13 +2118,15 @@ A0ef1:          LR   A,(IS)              ; 0ef1 4c
 				; Else, just restart the current game
                 JMP  restartGame               ; 0f07 29 0d 54
 
+;-----------------------------				
+
 ; Death animation ?
 ; Draw Box
 ; r1 - X pos
 ; r2 - Y pos + something else?
 ; r4 - Width
 ; r5 - Height
-drawSpiral:          
+drawSpiral:
 	LR   K,P                 ; 0f0a 08
 	; Set properties to draw a rect
 	LI   draw.drawRect        ; 0f0b 20 80
@@ -2217,7 +2247,7 @@ A0f69:          LR   P,K                 ; 0f69 09
 ; Explode every time the timer reaches 1000		
 explode:          
 			; Set xpos of all balls
-				; set ISAR to 0x12
+				; ISAR = 0x12
 				LIS  $2                  ; 0f6b 72
                 AI   $10                 ; 0f6c 24 10
                 LR   IS,A                ; 0f6e 0b
@@ -2267,8 +2297,9 @@ A0f83:          LI   $80                 ; 0f83 20 80
                 LR   (IS)+,A             ; 0f91 5d
 				
 				; Clear top bit of game mode
-                LISU 7                   ; 0f92 67
-                LISL 5                   ; 0f93 6d
+				SETISAR gameMode
+;                LISU 7                   ; 0f92 67
+ ;               LISL 5                   ; 0f93 6d
                 LR   A,(IS)              ; 0f94 4c
                 SL   1                   ; 0f95 13
                 SR   1                   ; 0f96 12
