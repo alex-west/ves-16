@@ -2131,16 +2131,19 @@ drawSpiral:
 	; Set properties to draw a rect
 	LI   draw.drawRect        ; 0f0b 20 80
 	LR   draw.glyph, A       ; 0f0d 50
-				; xpos = $34
-				; Note: ypos is set before entering this function
-                LI   $34                 ; 0f0e 20 34
-                LR   draw.xpos, A        ; 0f10 51
+	
+	; xpos = $34
+	; Note: ypos is set before entering this function
+	LI   $34                 ; 0f0e 20 34
+	LR   draw.xpos, A        ; 0f10 51
+	
                 LISU 2                   ; 0f11 62
                 LISL 4                   ; 0f12 6c
-				; Set width/height to 1
-                LIS  $1                  ; 0f13 71
-                LR   draw.width, A       ; 0f14 54
-                LR   draw.height, A      ; 0f15 55
+	
+	; Set width/height to 1
+	LIS  $1                  ; 0f13 71
+	LR   draw.width, A       ; 0f14 54
+	LR   draw.height, A      ; 0f15 55
 				; Set o24, o25, o26, o27 to 1
                 LR   (IS)+,A             ; 0f16 5d
                 LR   (IS)+,A             ; 0f17 5d
@@ -2159,14 +2162,15 @@ drawSpiral:
                 LR   J,W                 ; 0f21 1e ; save flags
                 ; Draw
 				PI   drawBox               ; 0f22 28 08 62
+
 drawSpiral.label_1: ; plot up         
-				; ypos = ypos - 1
-				DS   draw.ypos             ; 0f25 32
-                PI   drawBox               ; 0f26 28 08 62
-				; o26 = o26 - 1
-                DS   (IS)                ; 0f29 3c
-				; Loop until o26 reaches 0
-                BNZ   drawSpiral.label_1            ; 0f2a 94 fa
+	; ypos = ypos - 1
+	DS   draw.ypos             ; 0f25 32
+	PI   drawBox               ; 0f26 28 08 62
+	; o26 = o26 - 1
+	DS   (IS)                ; 0f29 3c
+	; Loop until o26 reaches 0
+	BNZ   drawSpiral.label_1            ; 0f2a 94 fa
 				
                 LR   W,J                 ; 0f2c 1d ; restore flags
                 ; goto exit if zero flag is set
@@ -2178,20 +2182,23 @@ drawSpiral.label_1: ; plot up
                 LR   (IS)-,A             ; 0f32 5e
 				; o26 = o27
                 LR   (IS)-,A             ; 0f33 5e
+
 drawSpiral.label_2: ; plot right         
-				; xpos++
-				LR   A, draw.xpos        ; 0f34 41
-                INC                      ; 0f35 1f
-                LR   draw.xpos, A        ; 0f36 51
-				; plot
-                PI   drawBox             ; 0f37 28 08 62
-                ; o25--
-				DS   (IS)                ; 0f3a 3c
-				; loop until o25 reaches 0
-                BNZ   drawSpiral.label_2            ; 0f3b 94 f8
-				; Clear sound
-                LIS  $0                  ; 0f3d 70
-                OUTS 5                   ; 0f3e b5
+	; xpos++
+	LR   A, draw.xpos        ; 0f34 41
+	INC                      ; 0f35 1f
+	LR   draw.xpos, A        ; 0f36 51
+	; plot
+	PI   drawBox             ; 0f37 28 08 62
+	; o25--
+	DS   (IS)                ; 0f3a 3c
+	; loop until o25 reaches 0
+	BNZ   drawSpiral.label_2            ; 0f3b 94 f8
+	
+	; Clear sound
+	LIS  $0                  ; 0f3d 70
+	OUTS 5                   ; 0f3e b5
+	
 				; o24 = o24 + 1
                 LR   A,(IS)-             ; 0f3f 4e
                 LR   A,(IS)              ; 0f40 4c
@@ -2199,29 +2206,32 @@ drawSpiral.label_2: ; plot right
                 LR   (IS)+,A             ; 0f42 5d
 				; o25 = o24
                 LR   (IS)+,A             ; 0f43 5d
-drawSpiral.label_3: ; plot down ?
-				; ypos++
-				LR   A, draw.ypos        ; 0f44 42
-                INC                      ; 0f45 1f
-                LR   draw.ypos, A        ; 0f46 52
-				; plot
-                PI   drawBox               ; 0f47 28 08 62
-				; o26-- ?
-                DS   (IS)                ; 0f4a 3c
 				
-                BNZ   drawSpiral.label_3              ; 0f4b 94 f8
+drawSpiral.label_3: ; plot down
+	; ypos++
+	LR   A, draw.ypos        ; 0f44 42
+	INC                      ; 0f45 1f
+	LR   draw.ypos, A        ; 0f46 52
+	; plot
+	PI   drawBox               ; 0f47 28 08 62
+	; o26-- ?
+	DS   (IS)                ; 0f4a 3c
+	BNZ   drawSpiral.label_3              ; 0f4b 94 f8
+	
+	
                 LR   A,(IS)+             ; 0f4d 4d
                 LR   A,(IS)              ; 0f4e 4c
                 INC                      ; 0f4f 1f
                 LR   (IS)-,A             ; 0f50 5e
                 LR   (IS)-,A             ; 0f51 5e
-drawSpiral.label_4: ; plot left ?
-				; xpos--
-				DS   draw.xpos           ; 0f52 31
-				; plot
-                PI   drawBox               ; 0f53 28 08 62
-                DS   (IS)                ; 0f56 3c
-                BNZ   drawSpiral.label_4            ; 0f57 94 fa
+drawSpiral.label_4: ; plot left
+	; xpos--
+	DS   draw.xpos           ; 0f52 31
+	; plot
+	PI   drawBox               ; 0f53 28 08 62
+	DS   (IS)                ; 0f56 3c
+	BNZ   drawSpiral.label_4            ; 0f57 94 fa
+				
                 LR   A,(IS)-             ; 0f59 4e
                 LR   A,(IS)              ; 0f5a 4c
                 INC                      ; 0f5b 1f
@@ -2232,17 +2242,19 @@ drawSpiral.label_4: ; plot left ?
                 DS   (IS)                ; 0f5f 3c
                 LISU 2                   ; 0f60 62
                 LR   J,W                 ; 0f61 1e ; reload flags
-				; Play sound ?
-                LR   A,$2                ; 0f62 42
-                OUTS 5                   ; 0f63 b5
+				
+	; Play sound ?
+	LR   A,$2                ; 0f62 42
+	OUTS 5                   ; 0f63 b5
 
                 BNZ  drawSpiral.label_1            ; 0f64 94 c0
 
                 DS   (IS)                ; 0f66 3c
                 BR   drawSpiral.label_1            ; 0f67 90 bd
-				; Return
-A0f69:          LR   P,K                 ; 0f69 09
-                POP                      ; 0f6a 1c
+	
+A0f69: ; Return
+	LR   P,K                 ; 0f69 09
+	POP                      ; 0f6a 1c
 
 ; Explode every time the timer reaches 1000		
 explode:          
