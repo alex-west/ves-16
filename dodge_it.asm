@@ -66,6 +66,12 @@ gfx.attributeWidth = 2
 gfx.screenWidth = $80
 gfx.screenHeight = $40
 
+gfx.G = $A
+gfx.Qmark = $B
+
+gfx.charWidth = $4
+gfx.charHeight = $5
+
 ;--
 
 	org $0800
@@ -214,7 +220,7 @@ draw.doRow:
 	OUTS 5                   ; 0873 b5
 	
 	; If glyph (r0) is negative, jump ahead
-	LIS  $0                  ; 0874 70
+	CLR                  ; 0874 70
 	AS   draw.glyph          ; 0875 c0
 	LI   $ff                 ; 0876 20 ff
 	BM    draw.label_1    ; 0878 91 09
@@ -242,11 +248,11 @@ draw.doPixel:
 	;  port 1 = draw.temp & draw.colorMask
 	; else
 	;  port 1 = BG_COLOR & draw.colorMask
-	LIS  $0                  ; 0886 70
+	CLR                  ; 0886 70
 	AS   draw.data           ; 0887 c3
 	LR   A, draw.temp        ; 0888 48
 	BM   draw.label_2    ; 0889 91 02
-	LIS  $0                  ; 088b 70
+	CLR                  ; 088b 70
 draw.label_2:          
 	COM                      ; 088c 18
 	NI   draw.colorMask      ; 088d 21 c0
@@ -321,7 +327,7 @@ draw.delay:
 	LR   draw.ypos, A        ; 08bc 52
 	
 	; Clear ports
-	LIS  $0                  ; 08bd 70
+	CLR                  ; 08bd 70
 	OUTS 1                   ; 08be b1
 	OUTS 0                   ; 08bf b0
 	POP                      ; 08c0 1c
@@ -329,9 +335,10 @@ draw.delay:
 ; end leaf-function draw
 ;----------------------------
 
+;----------------------------
+; RNG (probably)
 ; Modifies the contents of o76 and o77
 ; No input arguments
-; RNG (probably)
 RNG.seedHi = 076
 RNG.seedLo = 077
 ; Returns in registers
@@ -410,6 +417,7 @@ RNG.roll:
 	; Return
 	POP                      ; 08ef 1c
 
+;----------------------------
 ; Menu
 
 ; Locals
@@ -435,7 +443,7 @@ menu.pollInput:
 	PI   RNG.roll            ; 08f9 28 08 c1
 	DCI  A0853               ; 08fc 2a 08 53
 	; Read console buttons
-	LIS  $0                  ; 08ff 70
+	CLR                  ; 08ff 70
 	OUTS 0                   ; 0900 b0
 	INS  0                   ; 0901 a0
 	; Check if different
@@ -459,7 +467,8 @@ menu.wait:
 ;
 ; end mid-function menu
 ;---------------------------- 
-	
+
+;----------------------------
 ; Read controllers
 ; Args 
 ; Locals
@@ -472,7 +481,7 @@ readControllers:
 	SETISAR controller1      ; 0910 67 68
 	
 	; Clear controllers
-	LIS  $0                  ; 0912 70
+	CLR                  ; 0912 70
 	OUTS 1                   ; 0913 b1
 	OUTS 4                   ; 0914 b4
 	
@@ -504,7 +513,10 @@ readControllers:
 	
 readControllers.exit:
 	POP                      ; 0923 1c
-
+;
+;----------------------------
+	
+;----------------------------	
 ; HandlePlayerMovement
 playerHandler:
 	LR   K,P                 ; 0924 08
@@ -513,7 +525,7 @@ playerHandler:
 	SETISAR RNG.seedLo      ; 0928 67 6f
                 LIS  $1                  ; 092a 71
                 NS   (IS)                ; 092b fc
-                LIS  $0                  ; 092c 70
+                CLR                  ; 092c 70
 				; skip ahead if it is not set
                 BNZ   A0930            ; 092d 94 02
 				
@@ -523,7 +535,7 @@ A0930:          LR   $b,A                ; 0930 5b
                 LIS  $2                  ; 0931 72
                 LR   $8,A                ; 0932 58
 				; r0 = 0
-A0933:          LIS  $0                  ; 0933 70
+A0933:          CLR                  ; 0933 70
                 LR   $0,A                ; 0934 50
 				; r1 = xpos[r11]
                 LR   A,$b                ; 0935 4b
@@ -594,7 +606,7 @@ A0973:          LR   A,$0                ; 0973 40
                 PI   saveBall               ; 0977 28 09 a2
                 LIS  $1                  ; 097a 71
                 NS   $b                  ; 097b fb
-                LIS  $0                  ; 097c 70
+                CLR                  ; 097c 70
                 BNZ   A0980            ; 097d 94 02
                 LIS  $1                  ; 097f 71
 A0980:          LR   $b,A                ; 0980 5b
@@ -603,7 +615,8 @@ A0980:          LR   $b,A                ; 0980 5b
 	LR   P,K                 ; 0984 09
 	POP                      ; 0985 1c
 ; --?
-				
+
+;----------------------------
 ; Variable delay function
 ; Args
 ; Use this if entering via delay.viaLookup
@@ -644,7 +657,7 @@ delay.loadData:
 	LR   delay.count, A      ; 0999 50
 
 delay.variable:
-	LIS  $0                  ; 099a 70
+	CLR                  ; 099a 70
 delay.inner:
 	INC                      ; 099b 1f
 	BNZ  delay.inner         ; 099c 94 fe
@@ -652,6 +665,9 @@ delay.inner:
 	BNZ  delay.variable      ; 099f 94 fa
 	; Return
 	POP                      ; 09a1 1c
+; end of delay function
+;----------------------------
+	
 
 ; Args
 ; r0 = velocity
@@ -695,110 +711,130 @@ A09b9:
 				; exit
                 POP                      ; 09c1 1c
 
-; Spawn ball?
+;----------------------------
+; Spawn ball
+; mid-level function
 ; Args
 
 ; Locals
+spawn.velocity = $0
+spawn.xpos = $1
+spawn.ypos = $2
 
+; Constants
+spawn.xmin = $10
+spawn.xmax = $57
+spawn.ymin = $10
+spawn.ymax = $37
+
+spawn.playerY = $23
+spawn.playerX1 = $33
+spawn.playerX2 = $3A
 ; Returns
+; None (TODO: verify)
 
-maybeSpawn:
+spawn:
 	LR   K,P                 ; 09c2 08
-maybeSpawn.reroll:          
-	; keep rerolling RNG until r6 and r7 are in some range
-	; r1 = r6, r2 = r7
+spawn.reroll:          
+	; keep rerolling RNG until it gets an inbounds x and y position
+	; xpos = rng.hi
 	PI   RNG.roll            ; 09c3 28 08 c1
 	LR   A, RNG.regHi        ; 09c6 46
-	CI   $10                 ; 09c7 25 10
-	BC   maybeSpawn.reroll   ; 09c9 82 f9
-	CI   $57                 ; 09cb 25 57
-	BNC  maybeSpawn.reroll   ; 09cd 92 f5
-                LR   $1,A                ; 09cf 51
+	CI   spawn.xmin          ; 09c7 25 10
+	BC   spawn.reroll   ; 09c9 82 f9
+	CI   spawn.xmax          ; 09cb 25 57
+	BNC  spawn.reroll   ; 09cd 92 f5
+	LR   spawn.xpos,A                ; 09cf 51
+	; ypos = rng.lo
 	LR   A, RNG.regLo        ; 09d0 47
-	CI   $10                 ; 09d1 25 10
-	BC   maybeSpawn.reroll   ; 09d3 82 ef
-	CI   $37                 ; 09d5 25 37
-	BNC   maybeSpawn.reroll  ; 09d7 92 eb
-                LR   $2,A                ; 09d9 52
+	CI   spawn.ymin                 ; 09d1 25 10
+	BC   spawn.reroll   ; 09d3 82 ef
+	CI   spawn.ymax                 ; 09d5 25 37
+	BNC  spawn.reroll  ; 09d7 92 eb
+	LR   spawn.ypos,A                ; 09d9 52
+				; set velocity (TODO: verify)
 				; r0 = 0x55
                 LI   $55                 ; 09da 20 55
                 LR   $0,A                ; 09dc 50
-	; use lower 2 bits of r6 as index to jump table
+	; use lower 2 bits of rng.hi as index to jump table
 	LIS  %00000011           ; 09dd 73
 	NS   RNG.regHi           ; 09de f6
 	; jump to (jump_table + 2*A)
-	DCI  maybeSpawn.jumpTable; 09df 2a 09 e6
+	DCI  spawn.jumpTable; 09df 2a 09 e6
 	ADC                      ; 09e2 8e
 	ADC                      ; 09e3 8e
 	LR   Q,DC                ; 09e4 0e
 	LR   P0,Q                ; 09e5 0d
 ; Jump table !
-maybeSpawn.jumpTable:          
-	BR   maybeSpawn.label_1  ; 09e6 90 07
-	BR   maybeSpawn.label_2  ; 09e8 90 0a
-	BR   maybeSpawn.label_3  ; 09ea 90 13
-	BR   maybeSpawn.label_4  ; 09ec 90 1c
+spawn.jumpTable:          
+	BR   spawn.north  ; 09e6 90 07
+	BR   spawn.east  ; 09e8 90 0a
+	BR   spawn.south  ; 09ea 90 13
+	BR   spawn.west  ; 09ec 90 1c
 
-maybeSpawn.label_1:
-	; r2 = 0x11
+spawn.north:
+	; ypos = 0x11
 	LI   $11                 ; 09ee 20 11
-	LR   $2,A                ; 09f0 52
-	BR   maybeSpawn.handlePlayers ; 09f1 90 1a
-
-maybeSpawn.label_2:          
-	; r1 = -((0x30 & reg_a) >> 4) + 0xD8
-	LI   $30                 ; 09f3 20 30
+	LR   spawn.ypos,A        ; 09f0 52
+	BR   spawn.handlePlayers ; 09f1 90 1a
+	
+spawn.east:          
+	; xpos = $58 - enemy ball size
+	; xvel = west
+	LI   %00110000           ; 09f3 20 30
 	NS   $a                  ; 09f5 fa
 	SR   4                   ; 09f6 14
 	COM                      ; 09f7 18
 	INC                      ; 09f8 1f
-	AI   $d8                 ; 09f9 24 d8
-	LR   $1,A                ; 09fb 51
-	BR   maybeSpawn.handlePlayers ; 09fc 90 0f
+	AI   $80 | (spawn.xmax + 1) ;$d8                 ; 09f9 24 d8
+	LR   spawn.xpos,A                ; 09fb 51
+	BR   spawn.handlePlayers ; 09fc 90 0f
 
-maybeSpawn.label_3:
-	; r2 = -((0x30 & reg_a) >> 4) + 0xB8
-	LI   $30                 ; 09fe 20 30
+spawn.south:
+	; ypos = $38 - enemy ball size
+	; yvel = north
+	LI   %00110000           ; 09fe 20 30
 	NS   $a                  ; 0a00 fa
 	SR   4                   ; 0a01 14
 	COM                      ; 0a02 18
 	INC                      ; 0a03 1f
-	AI   $b8                 ; 0a04 24 b8
-	LR   $2,A                ; 0a06 52
-	BR   maybeSpawn.handlePlayers ; 0a07 90 04
+	AI   $80 | (spawn.ymax + 1) ;$b8                 ; 0a04 24 b8
+	LR   spawn.ypos,A                ; 0a06 52
+	BR   spawn.handlePlayers ; 0a07 90 04
 
-maybeSpawn.label_4:
-	; r1 = 0x11
+spawn.west:
+	; xpos = 0x11
 	LI   $11                 ; 0a09 20 11
-	LR   $1,A                ; 0a0b 51
+	LR   spawn.xpos,A                ; 0a0b 51
 
-maybeSpawn.handlePlayers:          
+spawn.handlePlayers:          
 	; if (reg_b > 1) skip ahead
 	LR   A, main.curBall     ; 0a0c 4b
 	CI   [MAX_PLAYERS-1]     ; 0a0d 25 01
-	BNC   maybeSpawn.exit    ; 0a0f 92 0b
+	BNC   spawn.exit         ; 0a0f 92 0b
 
 	; ypos = 0x23
-	LI   $23                 ; 0a11 20 23
-	LR   $2,A                ; 0a13 52
+	LI   spawn.playerY               ; 0a11 20 23
+	LR   spawn.ypos,A                ; 0a13 52
 	; if (curBall != 0)
 	;  xpos = 0x33
 	; else xpos = 0x33 + 0x07
-	LI   $33                 ; 0a14 20 33
-	BNZ   maybeSpawn.setXPos ; 0a16 94 03
-	AI   $07                 ; 0a18 24 07
+	LI   spawn.playerX1                  ; 0a14 20 33
+	BNZ   spawn.setXPos                  ; 0a16 94 03
+	AI   spawn.playerX2 - spawn.playerX1 ; 0a18 24 07
+spawn.setXPos:
+	LR   spawn.xpos,A                ; 0a1a 51
 
-maybeSpawn.setXPos:
-	LR   $1,A                ; 0a1a 51
-
-maybeSpawn.exit:
+spawn.exit:
 	; Save xpos and ypos
 	PI   saveBall               ; 0a1b 28 09 a2
 	; Exit
 	LR   P,K                 ; 0a1e 09
 	POP                      ; 0a1f 1c
+; end spawn function
+;----------------------------
 
-				
+;----------------------------				
 ; Update score
 ; Args
 drawTimer.xpos = 0
@@ -824,10 +860,10 @@ drawTimer:
 	NS   (IS)                ; 0a29 fc
 	LR   draw.glyph, A       ; 0a2a 50
 	; Width
-	LIS  $4                  ; 0a2b 74
+	LIS  gfx.charWidth       ; 0a2b 74
 	LR   draw.width, A       ; 0a2c 54
 	; Height
-	LIS  $5                  ; 0a2d 75
+	LIS  gfx.charHeight      ; 0a2d 75
 	LR   draw.height, A      ; 0a2e 55
 	PI   drawGlyph           ; 0a2f 28 08 58
 	
@@ -866,6 +902,7 @@ drawTimer:
 	; Exit
 	LR   P,K                 ; 0a51 09
 	POP                      ; 0a52 1c
+;----------------------------
 
 ; Do thing
 ; Args
@@ -941,7 +978,7 @@ A0a86:
 				;  xpos += xvel
 				; else
 				;  xpos -= xvel
-				LIS  $0                  ; 0a86 70
+				CLR                  ; 0a86 70
                 AS   draw.xpos           ; 0a87 c1
                 LR   J,W                 ; 0a88 1e
                 ; a = r3/4
@@ -962,7 +999,7 @@ A0a91:          ; r1 = r1 + a
 				;  ypos += yvel
 				; else
 				;  ypos -= yvel
-                LIS  $0                  ; 0a93 70
+                CLR                  ; 0a93 70
                 AS   draw.ypos           ; 0a94 c2
                 LR   J,W                 ; 0a95 1e
                 LIS  $3                  ; 0a96 73
@@ -974,6 +1011,7 @@ A0a91:          ; r1 = r1 + a
 A0a9d:          
 				AS   $2                  ; 0a9d c2
                 LR   $2,A                ; 0a9e 52
+				
 ; Ball/Wall collision detection
 	; if (reg_b <= 1)
 	;  r4 = o61
@@ -995,7 +1033,7 @@ A0aa7:
                 LR   A,(IS)              ; 0aad 4c
                 LR   $5,A                ; 0aae 55
                 ; Clear r0
-				LIS  $0                  ; 0aaf 70
+				CLR                  ; 0aaf 70
                 LR   $0,A                ; 0ab0 50
 				; if r1 is positive, branch ahead
                 AS   $1                  ; 0ab1 c1
@@ -1035,7 +1073,7 @@ A0acb:          LR   A,$1                ; 0acb 41
                 PI   playSound               ; 0ada 28 0c c8
                 BR   A0ac3            ; 0add 90 e5
 
-A0adf:          LIS  $0                  ; 0adf 70
+A0adf:          CLR                  ; 0adf 70
                 AS   $2                  ; 0ae0 c2
                 BM   A0afb            ; 0ae1 91 19
                 NI   $3f                 ; 0ae3 21 3f
@@ -1147,23 +1185,26 @@ A0b55:          ADC                      ; 0b55 8e
                 LR   draw.height, A      ; 0b62 55
                 LISU 7                   ; 0b63 67
                 LISL 2                   ; 0b64 6a
-                LIS  $0                  ; 0b65 70
+                CLR                  ; 0b65 70
                 AS   (IS)                ; 0b66 cc
                 BM   A0b6c            ; 0b67 91 04
 				
 				; Redraw thing
                 PI   drawBox               ; 0b69 28 08 62
 				; Return
+ballCollision.return: ; The next function uses this to return (!?)
 A0b6c:          LR   P,K                 ; 0b6c 09
                 POP                      ; 0b6d 1c
 
 ; Collision detection ?
 ; Args
 ;  r11 - Current ball ?
+collision.curBall = $0B
 ;
 ; Clobbers
 ; 071 - Used as a loop counter
-ballCollision:          LR   K,P                 ; 0b6e 08
+ballCollision:
+	LR   K,P                 ; 0b6e 08
 				; setting up the collision loop counter
 				; 071 = (num_balls(??) & 0x0F) + 1
                 LISU 5                   ; 0b6f 65
@@ -1174,43 +1215,55 @@ ballCollision:          LR   K,P                 ; 0b6e 08
                 LISL 1                   ; 0b75 69
                 INC                      ; 0b76 1f
                 LR   (IS),A              ; 0b77 5c
-				; loop_counter--
-A0b78:          LISU 7                   ; 0b78 67
-                LISL 1                   ; 0b79 69
-                DS   (IS)                ; 0b7a 3c
-				; if(loop_counter == 0), return
-                BM   A0b6c            ; 0b7b 91 f0
-				; if(loop_counter == current_ball), return
-                LR   A,(IS)              ; 0b7d 4c
-                XS   $b                  ; 0b7e eb
-                BZ   A0b78             ; 0b7f 84 f8
-				
-				; Check if we're in 2-player mode
-                LISL 5                   ; 0b81 6d
-                LIS  $1                  ; 0b82 71
-                NS   (IS)                ; 0b83 fc
-				; If so, skip ahead
-                BNZ   A0b8c            ; 0b84 94 07
-				; If not, check if the current ball is player 2
-                LISL 1                   ; 0b86 69
-                LR   A,(IS)              ; 0b87 4c
-                CI   $01                 ; 0b88 25 01
-				; If so, skip the current ball
-                BZ   A0b78             ; 0b8a 84 ed
-				; r1 = xpos[current_ball]
-A0b8c:          LI   $10                 ; 0b8c 20 10
-                AS   $b                  ; 0b8e cb
-                LR   IS,A                ; 0b8f 0b
-                LR   A,(IS)              ; 0b90 4c
-                NI   $7f                 ; 0b91 21 7f
-                LR   $1,A                ; 0b93 51
-				; r2 = ypos[current_ball]
-                LR   A,IS                ; 0b94 0a
-                AI   $0b                 ; 0b95 24 0b
-                LR   IS,A                ; 0b97 0b
-                LR   A,(IS)              ; 0b98 4c
-                NI   $3f                 ; 0b99 21 3f
-                LR   $2,A                ; 0b9b 52
+
+
+ballCollision.loopA:
+	; loop_counter--
+	LISU 7                   ; 0b78 67
+	LISL 1                   ; 0b79 69
+	DS   (IS)                ; 0b7a 3c
+
+	; if(loop_counter == 0), return
+	BM   ballCollision.return            ; 0b7b 91 f0
+
+	; if(loop_counter == current_ball), skip and go to next ball
+	LR   A,(IS)              ; 0b7d 4c
+	XS   collision.curBall                  ; 0b7e eb
+	BZ   ballCollision.loopA             ; 0b7f 84 f8
+
+	; Check if we're in 2-player mode
+	SETISARL gameMode                   ; 0b81 6d
+	LIS  $1                  ; 0b82 71
+	NS   (IS)                ; 0b83 fc
+	; If so, skip ahead
+	BNZ   A0b8c            ; 0b84 94 07
+	
+	; If not, check if the loop counter is on player 2's ball
+	LISL 1                   ; 0b86 69
+	LR   A,(IS)              ; 0b87 4c
+	CI   $01                 ; 0b88 25 01
+	; If so, skip the current ball
+	BZ   ballCollision.loopA             ; 0b8a 84 ed
+
+A0b8c:
+	; r1 = xpos[current_ball]
+	LI   balls.xpos                 ; 0b8c 20 10
+	AS   collision.curBall                  ; 0b8e cb
+	LR   IS,A                ; 0b8f 0b
+	LR   A,(IS)              ; 0b90 4c
+	; mask out the upper bit (direction of xvel)
+	NI   $7f                 ; 0b91 21 7f
+	LR   $1,A                ; 0b93 51
+	
+	; r2 = ypos[current_ball]
+	LR   A,IS                ; 0b94 0a
+	AI   balls.arraySize                 ; 0b95 24 0b
+	LR   IS,A                ; 0b97 0b
+	LR   A,(IS)              ; 0b98 4c
+	; mask out the upper bits (direction of yvel?)
+	NI   $3f                 ; 0b99 21 3f
+	LR   $2,A                ; 0b9b 52
+	
 				; do some sort of check with xpos[loop_counter]
                 LISU 7                   ; 0b9c 67
                 LISL 1                   ; 0b9d 69
@@ -1222,6 +1275,7 @@ A0b8c:          LI   $10                 ; 0b8c 20 10
                 COM                      ; 0ba5 18
                 INC                      ; 0ba6 1f
                 AS   $1                  ; 0ba7 c1
+				; save test results
                 LR   J,W                 ; 0ba8 1e
                 BP   A0bad             ; 0ba9 81 03
 				
@@ -1229,27 +1283,31 @@ A0b8c:          LI   $10                 ; 0b8c 20 10
                 INC                      ; 0bac 1f
 A0bad:          LR   $1,A                ; 0bad 51
                 LR   A,IS                ; 0bae 0a
-				; Check if workin on a player ball ?
+
+				; Check if workin on a player ball
                 CI   $11                 ; 0baf 25 11
                 BNC   A0bbd            ; 0bb1 92 0b
-				
+				; reuse test results from earlier
                 LR   W,J                 ; 0bb3 1d
                 BM   A0bbd            ; 0bb4 91 08
 				
+				; Get player ball width
                 LI   $c0                 ; 0bb6 20 c0
                 NS   $a                  ; 0bb8 fa
                 SR   1                   ; 0bb9 12
                 SR   1                   ; 0bba 12
                 BR   A0bc0            ; 0bbb 90 04
-				
+				; or get enemy ball width
 A0bbd:          LI   $30                 ; 0bbd 20 30
                 NS   $a                  ; 0bbf fa
 A0bc0:          SR   4                   ; 0bc0 14
+				; invert, add to r1
                 COM                      ; 0bc1 18
                 INC                      ; 0bc2 1f
                 AS   $1                  ; 0bc3 c1
 				; If so, restart loop
-                BP   A0b78             ; 0bc4 81 b3
+                BP   ballCollision.loopA             ; 0bc4 81 b3
+
 				; do check with ypos[loop_counter] ??
                 LR   A,IS                ; 0bc6 0a
                 AI   $0b                 ; 0bc7 24 0b
@@ -1259,6 +1317,7 @@ A0bc0:          SR   4                   ; 0bc0 14
                 COM                      ; 0bcd 18
                 INC                      ; 0bce 1f
                 AS   $2                  ; 0bcf c2
+				; save test results
                 LR   J,W                 ; 0bd0 1e
                 BP   A0bd5             ; 0bd1 81 03
 				
@@ -1269,22 +1328,26 @@ A0bd5:          LR   $2,A                ; 0bd5 52
                 CI   $1c                 ; 0bd7 25 1c
                 BNC   A0be5            ; 0bd9 92 0b
 				
+				; Reuse test result from earlier (player or enemy ball?)
                 LR   W,J                 ; 0bdb 1d
                 BM   A0be5            ; 0bdc 91 08
+
+				; Get player ball width
                 LI   $c0                 ; 0bde 20 c0
                 NS   $a                  ; 0be0 fa
                 SR   1                   ; 0be1 12
                 SR   1                   ; 0be2 12
                 BR   A0be8            ; 0be3 90 04
-				
+				; or get enemy ball width
 A0be5:          LI   $30                 ; 0be5 20 30
                 NS   $a                  ; 0be7 fa
 A0be8:          SR   4                   ; 0be8 14
+				; invert, add to r2
                 COM                      ; 0be9 18
                 INC                      ; 0bea 1f
                 AS   $2                  ; 0beb c2
 				; If so, restart loop
-                BP   A0b78             ; 0bec 81 8b
+                BP   ballCollision.loopA             ; 0bec 81 8b
 				
 				; Check if the collision was with a player
 				;  If so, game over
@@ -1332,11 +1395,11 @@ A0c20:
 	SETISAR gameMode
 ;	LISU 7                   ; 0c20 67
  ;               LISL 5                   ; 0c21 6d
-                LIS  $0                  ; 0c22 70
+                CLR                  ; 0c22 70
                 AS   (IS)                ; 0c23 cc
                 BP   A0c29             ; 0c24 81 04
                 ; If so, restart loop
-				JMP  A0b78               ; 0c26 29 0b 78
+				JMP  ballCollision.loopA               ; 0c26 29 0b 78
 				
 A0c29:          LR   A,$0                ; 0c29 40
                 SR   1                   ; 0c2a 12
@@ -1359,7 +1422,7 @@ A0c34:          LR   $3,A                ; 0c34 53
                 AS   $4                  ; 0c3c c4
                 LR   (IS),A              ; 0c3d 5c
 				; Exit
-                JMP  A0b6c               ; 0c3e 29 0b 6c
+                JMP  ballCollision.return               ; 0c3e 29 0b 6c
 				
 A0c41:          LISU 7                   ; 0c41 67
                 LISL 1                   ; 0c42 69
@@ -1385,8 +1448,10 @@ A0c59:          LR   (IS),A              ; 0c59 5c
                 LR   $8,A                ; 0c5c 58
                 BR   A0c20            ; 0c5d 90 c2
 ; End collision routine
+;----------------------------
 
-; Set playfield bounds?
+;----------------------------
+; Set playfield bounds? Along one axis?
 ; Args
 ;  r1 - ??
 ;  r2 - 
@@ -1396,54 +1461,75 @@ A0c59:          LR   (IS),A              ; 0c59 5c
 ;  r6 - via RNG call
 ;  r7 - via RNG call
 ;  ISAR[x] to ISAR[x+2]
-A0c5f:          LR   K,P                 ; 0c5f 08
-				; Reroll RNG until r6 is non-zero
-A0c60:          PI   RNG.roll               ; 0c60 28 08 c1
-                LIS  $0                  ; 0c63 70
-                AS   $6                  ; 0c64 c6
-                BZ   A0c60             ; 0c65 84 fa
-				; if(r1 == 0x58)
-				;  if(r6 < 0x0B)
-				;   go back and reroll
-				; else if(r6 < 0x12)
-				;   go back and reroll
-                LR   A,$1                ; 0c67 41
-                CI   $58                 ; 0c68 25 58
-                LR   A,$6                ; 0c6a 46
-                BNZ   A0c71            ; 0c6b 94 05
-                CI   $12                 ; 0c6d 25 12
-                BR   A0c73            ; 0c6f 90 03
-A0c71:          CI   $0b                 ; 0c71 25 0b
-A0c73:          BNC   A0c60            ; 0c73 92 ec
-				; r4 = -(-r6+1+r1)
-                COM                      ; 0c75 18
-                INC                      ; 0c76 1f
-                INC                      ; 0c77 1f
-                AS   $1                  ; 0c78 c1
-                COM                      ; 0c79 18
-                INC                      ; 0c7a 1f
-                LR   $4,A                ; 0c7b 54
-				; ISAR++ = ((reg_a & 0x30) >> 4) + r4
-                LI   $30                 ; 0c7c 20 30
-                NS   $a                  ; 0c7e fa
-                SR   4                   ; 0c7f 14
-                AS   $4                  ; 0c80 c4
-                LR   (IS)+,A             ; 0c81 5d
-				; ISAR++ = ((reg_a & 0xC0) >> 6) + r4
-                LI   $c0                 ; 0c82 20 c0
-                NS   $a                  ; 0c84 fa
-                SR   4                   ; 0c85 14
-                SR   1                   ; 0c86 12
-                SR   1                   ; 0c87 12
-                AS   $4                  ; 0c88 c4
-                LR   (IS)+,A             ; 0c89 5d
-				; ISAR++ = r6 + r2
-                LR   A,$6                ; 0c8a 46
-                AS   $2                  ; 0c8b c2
-                LR   (IS)+,A             ; 0c8c 5d
-                LR   P,K                 ; 0c8d 09
-                POP                      ; 0c8e 1c
+setBounds:
+	LR   K,P                 ; 0c5f 08
+A0c60: ; Reroll RNG until r6 is non-zero
+	PI   RNG.roll               ; 0c60 28 08 c1
+	CLR                  ; 0c63 70
+	AS   RNG.regHi           ; 0c64 c6
+	BZ   A0c60             ; 0c65 84 fa
+	
+	; if(r1 == 0x58)
+	;  if(RNG > 0x0B)
+	;   go back and reroll
+	; else if(RNG > 0x12)
+	;   go back and reroll
+	LR   A,$1                ; 0c67 41
+	CI   $58                 ; 0c68 25 58
+	LR   A, RNG.regHi                ; 0c6a 46
+	BNZ   A0c71            ; 0c6b 94 05
+	CI   $12                 ; 0c6d 25 12
+	BR   A0c73            ; 0c6f 90 03
+A0c71:
+	CI   $0b                 ; 0c71 25 0b
+A0c73:
+	BNC   A0c60            ; 0c73 92 ec
 
+	; do the math for the right or bottom boundary
+	;  Note: the greater this number is, the more to the left or top this boundary
+	;   is. (Unintuitive. Works opposite of how the top and left bounds work)
+	; r4 = -(r1-(rng-1))  ??
+	COM                      ; 0c75 18
+	INC                      ; 0c76 1f
+	INC                      ; 0c77 1f
+	AS   $1                  ; 0c78 c1
+	COM                      ; 0c79 18
+	INC                      ; 0c7a 1f
+	LR   $4,A                ; 0c7b 54
+	
+	; Set enemy's right or bottom boundary
+	; ISAR++ = ((reg_a & 0x30) >> 4) + r4
+	; Get enemy ball size
+	LI   $30                 ; 0c7c 20 30
+	NS   $a                  ; 0c7e fa
+	SR   4                   ; 0c7f 14
+	; Add it to r4
+	AS   $4                  ; 0c80 c4
+	LR   (IS)+,A             ; 0c81 5d
+	
+	; Set players's right or bottom boundary
+	; ISAR++ = ((reg_a & 0xC0) >> 6) + r4
+	; Get the player's ball size
+	LI   $c0                 ; 0c82 20 c0
+	NS   $a                  ; 0c84 fa
+	SR   4                   ; 0c85 14
+	SR   1                   ; 0c86 12
+	SR   1                   ; 0c87 12
+	; Add it to r4
+	AS   $4                  ; 0c88 c4
+	LR   (IS)+,A             ; 0c89 5d
+	
+	; Set the left or top boundary
+	; ISAR++ = r6 + r2
+	LR   A,$6                ; 0c8a 46
+	AS   $2                  ; 0c8b c2
+	LR   (IS)+,A             ; 0c8c 5d
+	LR   P,K                 ; 0c8d 09
+	POP                      ; 0c8e 1c
+; end of set bounds function
+;----------------------------
+	
+;----------------------------
 ; Screen Flash
 ;  Unused function
 ; Args
@@ -1500,7 +1586,7 @@ A0ca0:
 	PI   drawBox             ; 0cb2 28 08 62
 	
 	; Clear sound
-	LIS  $0                  ; 0cb5 70
+	CLR                  ; 0cb5 70
 	OUTS 5                   ; 0cb6 b5
 	
 	; Delay
@@ -1517,7 +1603,7 @@ A0ca0:
 	;  ypos/color = 0
 	LIS  $1                  ; 0cbf 71
 	NS   flash.timer         ; 0cc0 f9
-	LIS  $0                  ; 0cc1 70
+	CLR                  ; 0cc1 70
 	BZ   A0c9f             ; 0cc2 84 dc
 	; Else set r2 to 0
 	BR   A0ca0            ; 0cc4 90 db
@@ -1525,7 +1611,9 @@ A0ca0:
 flash.exit:     
 	LR   P,K                 ; 0cc6 09
 	POP                      ; 0cc7 1c
+;----------------------------
 
+;----------------------------
 ; Play ticking sound when bumping into a wall
 ; rb - Index of the ball (don't let players make noise?)
 ; r3 - Sound to be played
@@ -1542,7 +1630,9 @@ playSound:
 	OUTS 5                   ; 0cce b5
 playSound.exit:          
 	POP                      ; 0ccf 1c
+;----------------------------
 
+;----------------------------	
 ; Init Game
 initRoutine:
 	LISU 7                   ; 0cd0 67
@@ -1557,7 +1647,7 @@ initRoutine:
 	LR   (IS)-,A             ; 0cd8 5e
 	; clear o73
 	LISL 3                   ; 0cd9 6b
-	LIS  $0                  ; 0cda 70
+	CLR                  ; 0cda 70
 	LR   (IS),A              ; 0cdb 5c
 	; Clear port
 	OUTS 0                   ; 0cdc b0
@@ -1567,7 +1657,7 @@ initRoutine:
 	LI   draw.drawRect        ; 0cdd 20 80
 	LR   draw.glyph, A       ; 0cdf 50
 	; Set x and y pos
-	LIS  $0                  ; 0ce0 70
+	CLR                  ; 0ce0 70
 	LR   draw.xpos, A        ; 0ce1 51
 	LR   draw.ypos, A        ; 0ce2 52
 	; width = screen width
@@ -1594,7 +1684,7 @@ initRoutine:
 
 ; Draw the "G?" screen
 	; glyph = 'G'
-	LIS  $a                  ; 0cf8 7a
+	LIS  gfx.G               ; 0cf8 7a
 	LR   draw.glyph, A       ; 0cf9 50
 	; xpos
 	LI   $30                 ; 0cfa 20 30
@@ -1603,15 +1693,15 @@ initRoutine:
 	LI   $9b                 ; 0cfd 20 9b
 	LR   draw.ypos, A        ; 0cff 52
 	; width
-	LIS  $4                  ; 0d00 74
+	LIS  gfx.charWidth       ; 0d00 74
 	LR   draw.width, A       ; 0d01 54
 	; height
-	LIS  $5                  ; 0d02 75
+	LIS  gfx.charHeight      ; 0d02 75
 	LR   draw.height, A      ; 0d03 55
 	PI   drawGlyph           ; 0d04 28 08 58
 	
 	; glyph = '?'
-	LIS  $b                  ; 0d07 7b
+	LIS  gfx.Qmark                  ; 0d07 7b
 	LR   draw.glyph, A       ; 0d08 50
 	; x pos
 	LI   $35                 ; 0d09 20 35
@@ -1669,22 +1759,25 @@ A0d1e:
                 AS   (IS)                ; 0d3a cc
                 LR   (IS)-,A             ; 0d3b 5e
 
+				; I don't think this array ever gets read
                 DCI  A0848               ; 0d3c 2a 08 48
                 LIS  $3                  ; 0d3f 73
                 NS   $a                  ; 0d40 fa
                 SL   1                   ; 0d41 13
                 ADC                      ; 0d42 8e
-                LI   $58                 ; 0d43 20 58
-                LR   $1,A                ; 0d45 51
-                LI   $10                 ; 0d46 20 10
-                LR   $2,A                ; 0d48 52
-                LISU 6                   ; 0d49 66
-                LISL 0                   ; 0d4a 68
-                PI   A0c5f               ; 0d4b 28 0c 5f
-				
-                LI   $38                 ; 0d4e 20 38
-                LR   $1,A                ; 0d50 51
-                PI   A0c5f               ; 0d51 28 0c 5f
+	
+	; setplayfield bounds for x axis
+	LI   $58                 ; 0d43 20 58
+	LR   $1,A                ; 0d45 51
+	LI   $10                 ; 0d46 20 10
+	LR   $2,A                ; 0d48 52
+	SETISAR bounds.rightEnemy ; 0d49 66 68
+	PI   setBounds               ; 0d4b 28 0c 5f
+	
+	; set playfied bounds for y axis
+	LI   $38                 ; 0d4e 20 38
+	LR   $1,A                ; 0d50 51
+	PI   setBounds               ; 0d51 28 0c 5f
 				
 restartGame:          
 	; Draw playfield
@@ -1717,7 +1810,9 @@ restartGame:
 	COM                      ; 0d6c 18
 	INC                      ; 0d6d 1f
 	LR   draw.width, A       ; 0d6e 54
-	; r3 = (reg_a & $30) >> 4 // VERIFY: reg_a contains the player's size
+	
+	; Add the enemy size to the width
+	; r3 = (reg_a & $30) >> 4
 	; width += r3
 	LI   $30                 ; 0d6f 20 30
 	NS   $a                  ; 0d71 fa
@@ -1725,11 +1820,12 @@ restartGame:
 	LR   $3,A                ; 0d73 53
 	AS   draw.width          ; 0d74 c4
 	LR   draw.width, A       ; 0d75 54
+	
 	; set ypos (color is blank)
 	SETISARL bounds.top                  ; 0d76 6d
 	LR   A,(IS)              ; 0d77 4c
 	LR   draw.ypos, A        ; 0d78 52
-	; height = -(top - bottom) + temp // temp is player size
+	; height = -(top - bottom) + temp // temp is enemy size
 	SETISARL bounds.bottomEnemy          ; 0d79 6b
 	AS   (IS)                ; 0d7a cc
 	COM                      ; 0d7b 18
@@ -1739,19 +1835,20 @@ restartGame:
 	; Set rendering properties
 	LI   draw.drawRect        ; 0d7f 20 80
 	LR   draw.glyph, A       ; 0d81 50
+	; Draw inner box
 	PI   drawBox             ; 0d82 28 08 62
 	
 	; timer = 0
 	SETISAR timer.hiByte     ; 0d85 66 6e
-	LIS  $0                  ; 0d87 70
+	CLR                  ; 0d87 70
 	LR   (IS)+,A             ; 0d88 5d
 	LR   (IS)+,A             ; 0d89 5d
 
 	; Do something for 2 balls?
-	LIS  $0                  ; 0d8a 70
+	CLR                  ; 0d8a 70
 A0d8b:          
 	LR   main.curBall, A     ; 0d8b 5b
-	PI   maybeSpawn               ; 0d8c 28 09 c2
+	PI   spawn               ; 0d8c 28 09 c2
 	LR   A, main.curBall     ; 0d8f 4b
 	INC                      ; 0d90 1f
 	CI   [MAX_PLAYERS-1]     ; 0d91 25 01
@@ -1762,17 +1859,17 @@ A0d8b:
                 LISL 6                   ; 0d96 6e
                 LR   (IS),A              ; 0d97 5c
                 LR   main.curBall, A     ; 0d98 5b
-                PI   maybeSpawn               ; 0d99 28 09 c2
+                PI   spawn               ; 0d99 28 09 c2
 				
                 LISU 7                   ; 0d9c 67
                 LISL 2                   ; 0d9d 6a
-                LIS  $0                  ; 0d9e 70
+                CLR                  ; 0d9e 70
                 LR   (IS),A              ; 0d9f 5c
 
 ; MAIN LOOP 
 mainLoop:
 	; Clear sound
-	LIS  $0                  ; 0da0 70
+	CLR                  ; 0da0 70
 	OUTS 5                   ; 0da1 b5
 				
 				; Change num ball according to timer?
@@ -1801,7 +1898,7 @@ A0dab:          LISU 5                   ; 0dab 65
                 NI   $0f                 ; 0db8 21 0f
                 BNZ   A0dc5            ; 0dba 94 0a
 				; Continue if hundreds are zero				
-                LIS  $0                  ; 0dbc 70
+                CLR                  ; 0dbc 70
                 AS   (IS)                ; 0dbd cc
                 BNZ   A0dc5            ; 0dbe 94 06
 				; Continue if tens and ones are both zero
@@ -1851,7 +1948,7 @@ A0dcf:
 				
                 LR   A,(IS)              ; 0deb 4c
                 LR   main.curBall, A     ; 0dec 5b
-                PI   maybeSpawn               ; 0ded 28 09 c2
+                PI   spawn               ; 0ded 28 09 c2
 				
                 LISU 5                   ; 0df0 65
                 LISL 6                   ; 0df1 6e
@@ -1914,16 +2011,18 @@ A0dfd:          LISU 7                   ; 0dfd 67
 				; Loop back to beginning if explosion flag isn't set
 A0e36:          LISU 7                   ; 0e36 67
                 LISL 2                   ; 0e37 6a
-                LIS  $0                  ; 0e38 70
+                CLR                  ; 0e38 70
                 AS   (IS)                ; 0e39 cc
                 BP   A0e41             ; 0e3a 81 06
 				; Clear explosion flag, and then explode
-                LIS  $0                  ; 0e3c 70
+                CLR                  ; 0e3c 70
                 LR   (IS),A              ; 0e3d 5c
                 JMP  explode               ; 0e3e 29 0f 6b
 				; Loop back
 A0e41:          
 	JMP  mainLoop               ; 0e41 29 0d a0
+; end of main loop
+;----------------------------
 
 ; Game Over / Death Animation
 gameOver:
@@ -1962,7 +2061,7 @@ A0e5a:
 	BNZ   gameOver.spiralLoop            ; 0e60 94 eb
 
 	; delay.variable($0)
-	LIS  $0                  ; 0e62 70
+	CLR                  ; 0e62 70
 	LR   delay.count, A      ; 0e63 50
 	PI   delay.variable      ; 0e64 28 09 9a
 
@@ -2047,7 +2146,7 @@ A0eb2:
 	PI   readControllers     ; 0eb8 28 09 10
 				; If controller is pushed, keep gametype?
                 LISL 0                   ; 0ebb 68
-                LIS  $0                  ; 0ebc 70
+                CLR                  ; 0ebc 70
                 AS   (IS)                ; 0ebd cc
                 BM   A0ec3            ; 0ebe 91 04
                 JMP  restartGame               ; 0ec0 29 0d 54
@@ -2109,16 +2208,16 @@ A0ef1:          LR   A,(IS)              ; 0ef1 4c
                 PI   readControllers               ; 0efb 28 09 10
                 ; If neither player is touching anything, shuffle gametype
 				LISL 0                   ; 0efe 68
-                LIS  $0                  ; 0eff 70
+                CLR                  ; 0eff 70
                 AS   (IS)+               ; 0f00 cd
                 BM   A0ec3            ; 0f01 91 c1
-                LIS  $0                  ; 0f03 70
+                CLR                  ; 0f03 70
                 AS   (IS)                ; 0f04 cc
                 BM   A0ec3            ; 0f05 91 bd
 				; Else, just restart the current game
                 JMP  restartGame               ; 0f07 29 0d 54
 
-;-----------------------------				
+;-----------------------------
 
 ; Death animation ?
 ; Draw Box
@@ -2174,7 +2273,7 @@ drawSpiral.label_1: ; plot up
 				
                 LR   W,J                 ; 0f2c 1d ; restore flags
                 ; goto exit if zero flag is set
-				BZ   A0f69             ; 0f2d 84 3b
+				BZ   drawSpiral.exit             ; 0f2d 84 3b
 				; o27 = o27 + 1
                 LR   A,(IS)+             ; 0f2f 4d
                 LR   A,(IS)              ; 0f30 4c
@@ -2196,7 +2295,7 @@ drawSpiral.label_2: ; plot right
 	BNZ   drawSpiral.label_2            ; 0f3b 94 f8
 	
 	; Clear sound
-	LIS  $0                  ; 0f3d 70
+	CLR                  ; 0f3d 70
 	OUTS 5                   ; 0f3e b5
 	
 				; o24 = o24 + 1
@@ -2252,63 +2351,72 @@ drawSpiral.label_4: ; plot left
                 DS   (IS)                ; 0f66 3c
                 BR   drawSpiral.label_1            ; 0f67 90 bd
 	
-A0f69: ; Return
+drawSpiral.exit: ; Return
 	LR   P,K                 ; 0f69 09
 	POP                      ; 0f6a 1c
 
-; Explode every time the timer reaches 1000		
-explode:          
-			; Set xpos of all balls
-				; ISAR = 0x12
-				LIS  $2                  ; 0f6b 72
-                AI   $10                 ; 0f6c 24 10
-                LR   IS,A                ; 0f6e 0b
-				; r0 = 9
-                LIS  $9                  ; 0f6f 79
-                LR   $0,A                ; 0f70 50
-				; (ISAR) = (0x80 & (ISAR)) + 0x30
-A0f71:          LI   $80                 ; 0f71 20 80
-                NS   (IS)                ; 0f73 fc
-                AI   $30                 ; 0f74 24 30
-                LR   (IS),A              ; 0f76 5c
-				;ISAR++
-                LR   A,IS                ; 0f77 0a
-                INC                      ; 0f78 1f
-                LR   IS,A                ; 0f79 0b
-				; r0--
-                DS   $0                  ; 0f7a 30
-				; if r0 != 0, loop back
-                BNZ   A0f71            ; 0f7b 94 f5
+;-----------------------------
+; Explode every time the timer reaches 1000
+; Top level procedure
+; r0 = loop counter
+explode.loopCounter = $0
 
-				; ISAR += 2
-                LR   A,IS                ; 0f7d 0a
-                AI   $02                 ; 0f7e 24 02
-                LR   IS,A                ; 0f80 0b
-				
-			; Set ypos of all balls
-				; r0 = 9
-                LIS  $9                  ; 0f81 79
-                LR   $0,A                ; 0f82 50
-				; (ISAR) = ((ISAR) & 0x80) + 0x22
-A0f83:          LI   $80                 ; 0f83 20 80
-                NS   (IS)                ; 0f85 fc
-                AI   $22                 ; 0f86 24 22
-                LR   (IS),A              ; 0f88 5c
-				; ISAR++
-                LR   A,IS                ; 0f89 0a
-                INC                      ; 0f8a 1f
-                LR   IS,A                ; 0f8b 0b
-				; r0--
-                DS   $0                  ; 0f8c 30
-				; if r0 != 0, loop back
-                BNZ   A0f83            ; 0f8d 94 f5
+; Constants
+explode.xpos = $30
+explode.ypos = $22
+
+explode:          
+	; Set xpos of all balls
+	; ISAR = 0x12
+	LIS  MAX_PLAYERS         ; 0f6b 72
+	AI   balls.xpos          ; 0f6c 24 10
+	LR   IS,A                ; 0f6e 0b
+
+	; r0 = 9
+	LIS  $9                  ; 0f6f 79
+	LR   $0,A                ; 0f70 50
+explode.xloop:
+	; set xpos while preserving the direction of xvel
+	LI   %10000000           ; 0f71 20 80
+	NS   (IS)                ; 0f73 fc
+	AI   explode.xpos                 ; 0f74 24 30
+	LR   (IS),A              ; 0f76 5c
+	; increment ISAR (did the programmer forget about the ISAR post-increment/)
+	LR   A,IS                ; 0f77 0a
+	INC                      ; 0f78 1f
+	LR   IS,A                ; 0f79 0b
+	; loop back if not zero
+	DS   $0                  ; 0f7a 30
+	BNZ   explode.xloop            ; 0f7b 94 f5
+
+	; Set ypos of all balls
+	; increment ISAR by 2 to skip the player balls
+	LR   A,IS                ; 0f7d 0a
+	AI   MAX_PLAYERS         ; 0f7e 24 02
+	LR   IS,A                ; 0f80 0b
+	; r0 = 9
+	LIS  $9                  ; 0f81 79
+	LR   $0,A                ; 0f82 50
+explode.yloop:
+	; set ypos while preserving the direction of yvel
+	LI   %10000000           ; 0f83 20 80
+	NS   (IS)                ; 0f85 fc
+	AI   explode.ypos        ; 0f86 24 22
+	LR   (IS),A              ; 0f88 5c
+	; increment ISAR, decrement loop counter
+	LR   A,IS                ; 0f89 0a
+	INC                      ; 0f8a 1f
+	LR   IS,A                ; 0f8b 0b
+	DS   $0                  ; 0f8c 30
+	; loop back if not zero
+	BNZ   explode.yloop            ; 0f8d 94 f5
 				
 				; (ISAR) = reg_a, ISAR++, (ISAR) = reg_a
                 LR   A,$a                ; 0f8f 4a
                 LR   (IS)+,A             ; 0f90 5d
                 LR   (IS)+,A             ; 0f91 5d
 				
-				; Clear top bit of game mode
+				; Clear top bit of game mode (TODO: Find out why)
 				SETISAR gameMode
 ;                LISU 7                   ; 0f92 67
  ;               LISL 5                   ; 0f93 6d
@@ -2316,9 +2424,9 @@ A0f83:          LI   $80                 ; 0f83 20 80
                 SL   1                   ; 0f95 13
                 SR   1                   ; 0f96 12
                 LR   (IS),A              ; 0f97 5c
-				; Exit
-                JMP  mainLoop               ; 0f98 29 0d a0
-				
+	; Exit
+	JMP  mainLoop               ; 0f98 29 0d a0
+	
     db $b2 ; Unused?
 	; Free space - 94 bytes!
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
