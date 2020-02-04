@@ -2049,9 +2049,9 @@ gameOver.spiralLoop:
 	; ypos = $24
 	LR   A, draw.ypos        ; 0e53 42
 	AI   $40                 ; 0e54 24 40
-	BNC   A0e5a            ; 0e56 92 03
+	BNC   gameOver.label1            ; 0e56 92 03
 	AI   $40                 ; 0e58 24 40
-A0e5a:
+gameOver.label1:
 	NI   $c0                 ; 0e5a 21 c0
 	AI   $24                 ; 0e5c 24 24
 	LR   draw.ypos,A         ; 0e5e 52
@@ -2218,13 +2218,23 @@ A0ef1:          LR   A,(IS)              ; 0ef1 4c
                 JMP  restartGame               ; 0f07 29 0d 54
 
 ;-----------------------------
-
-; Death animation ?
-; Draw Box
+; Draw Spiral (for death animation)
+; mid-level function
+; 
 ; r1 - X pos
 ; r2 - Y pos + something else?
 ; r4 - Width
 ; r5 - Height
+
+; Locals
+; o24 - horizontal diameter
+; o25 - horizontal counter
+; o26 - vertical counter
+; o27 - vertical diameter
+; o36 - spiral counter
+;
+; Note: These take the place of variables used while the game is being played!
+
 drawSpiral:
 	LR   K,P                 ; 0f0a 08
 	; Set properties to draw a rect
@@ -2243,68 +2253,76 @@ drawSpiral:
 	LIS  $1                  ; 0f13 71
 	LR   draw.width, A       ; 0f14 54
 	LR   draw.height, A      ; 0f15 55
-				; Set o24, o25, o26, o27 to 1
-                LR   (IS)+,A             ; 0f16 5d
-                LR   (IS)+,A             ; 0f17 5d
-                LR   (IS)+,A             ; 0f18 5d
-                LR   (IS)-,A             ; 0f19 5e
+	; Set all spiral counters to 1 (o24, o25, o26, o27)
+	LR   (IS)+,A             ; 0f16 5d ;is = 0x14
+	LR   (IS)+,A             ; 0f17 5d ;is = 0x15
+	LR   (IS)+,A             ; 0f18 5d ;is = 0x16
+	LR   (IS)-,A             ; 0f19 5e ;is = 0x17
 				; o36 = o46
                 LISU 4                   ; 0f1a 64
-                LR   A,(IS)              ; 0f1b 4c
+                LR   A,(IS)              ; 0f1b 4c ; is = o46
                 LISU 3                   ; 0f1c 63
-                LR   (IS),A              ; 0f1d 5c
+                LR   (IS),A              ; 0f1d 5c ; is = o36
 				; isar = o26
                 LISU 2                   ; 0f1e 62
 				; a = 2
                 LIS  $1                  ; 0f1f 71
                 SL   1                   ; 0f20 13
                 LR   J,W                 ; 0f21 1e ; save flags
-                ; Draw
-				PI   drawBox               ; 0f22 28 08 62
+	; Draw
+	PI   drawBox               ; 0f22 28 08 62
 
 drawSpiral.label_1: ; plot up         
-	; ypos = ypos - 1
+	; ypos++
 	DS   draw.ypos             ; 0f25 32
 	PI   drawBox               ; 0f26 28 08 62
-	; o26 = o26 - 1
-	DS   (IS)                ; 0f29 3c
-	; Loop until o26 reaches 0
+	; decrement vertical counter
+	; o26--
+	DS   (IS)                ; 0f29 3c ; is = 0x16
+	; Loop until vcount reaches 0
 	BNZ   drawSpiral.label_1            ; 0f2a 94 fa
-				
-                LR   W,J                 ; 0f2c 1d ; restore flags
-                ; goto exit if zero flag is set
-				BZ   drawSpiral.exit             ; 0f2d 84 3b
-				; o27 = o27 + 1
-                LR   A,(IS)+             ; 0f2f 4d
-                LR   A,(IS)              ; 0f30 4c
-                INC                      ; 0f31 1f
-                LR   (IS)-,A             ; 0f32 5e
-				; o26 = o27
-                LR   (IS)-,A             ; 0f33 5e
+	
+	LR   W,J                 ; 0f2c 1d ; restore flags
+	; goto exit if o36 (spiral counter) is zero
+	BZ   drawSpiral.exit             ; 0f2d 84 3b
+
+	; increment vertical diameter
+	; o27++
+	LR   A,(IS)+             ; 0f2f 4d
+	LR   A,(IS)              ; 0f30 4c ; is=o27
+	INC                      ; 0f31 1f
+	LR   (IS)-,A             ; 0f32 5e
+	; set vcount to the new vdiam
+	; o26 = o27
+	LR   (IS)-,A             ; 0f33 5e ;is=o26
+	;is=o25
 
 drawSpiral.label_2: ; plot right         
 	; xpos++
 	LR   A, draw.xpos        ; 0f34 41
 	INC                      ; 0f35 1f
 	LR   draw.xpos, A        ; 0f36 51
-	; plot
 	PI   drawBox             ; 0f37 28 08 62
+	; Decrease horizontal counter
 	; o25--
 	DS   (IS)                ; 0f3a 3c
-	; loop until o25 reaches 0
+	; loop until hcount reaches 0
 	BNZ   drawSpiral.label_2            ; 0f3b 94 f8
 	
 	; Clear sound
 	CLR                  ; 0f3d 70
 	OUTS 5                   ; 0f3e b5
-	
-				; o24 = o24 + 1
-                LR   A,(IS)-             ; 0f3f 4e
-                LR   A,(IS)              ; 0f40 4c
-                INC                      ; 0f41 1f
-                LR   (IS)+,A             ; 0f42 5d
-				; o25 = o24
-                LR   (IS)+,A             ; 0f43 5d
+
+	; increment horizontal diameter
+	; o24++
+	LR   A,(IS)-             ; 0f3f 4e ;is=o25
+	LR   A,(IS)              ; 0f40 4c ;is=o24
+	INC                      ; 0f41 1f
+	LR   (IS)+,A             ; 0f42 5d ;is=o24
+	; set hcount to new hdiam
+	; o25 = o24
+	LR   (IS)+,A             ; 0f43 5d ;is=o25
+	;is=o26
 				
 drawSpiral.label_3: ; plot down
 	; ypos++
@@ -2313,43 +2331,58 @@ drawSpiral.label_3: ; plot down
 	LR   draw.ypos, A        ; 0f46 52
 	; plot
 	PI   drawBox               ; 0f47 28 08 62
-	; o26-- ?
+	; decrement vcount
+	; o26--
 	DS   (IS)                ; 0f4a 3c
 	BNZ   drawSpiral.label_3              ; 0f4b 94 f8
-	
-	
-                LR   A,(IS)+             ; 0f4d 4d
-                LR   A,(IS)              ; 0f4e 4c
-                INC                      ; 0f4f 1f
-                LR   (IS)-,A             ; 0f50 5e
-                LR   (IS)-,A             ; 0f51 5e
+
+	; increment vertical diameter
+	; o27++
+	LR   A,(IS)+             ; 0f4d 4d ;is=o26
+	LR   A,(IS)              ; 0f4e 4c ;is=o27
+	INC                      ; 0f4f 1f
+	LR   (IS)-,A             ; 0f50 5e ;is=o27
+	; set vcount to the new vdiam
+	; o26 = o27
+	LR   (IS)-,A             ; 0f51 5e ;is=o26
+	;is=o25
+				
 drawSpiral.label_4: ; plot left
 	; xpos--
 	DS   draw.xpos           ; 0f52 31
-	; plot
 	PI   drawBox               ; 0f53 28 08 62
+	; decrement hcount
+	; o25--
 	DS   (IS)                ; 0f56 3c
 	BNZ   drawSpiral.label_4            ; 0f57 94 fa
-				
-                LR   A,(IS)-             ; 0f59 4e
-                LR   A,(IS)              ; 0f5a 4c
-                INC                      ; 0f5b 1f
-                LR   (IS)+,A             ; 0f5c 5d
-                LR   (IS)+,A             ; 0f5d 5d
-				
-                LISU 3                   ; 0f5e 63
-                DS   (IS)                ; 0f5f 3c
-                LISU 2                   ; 0f60 62
-                LR   J,W                 ; 0f61 1e ; reload flags
+
+	; increment horizontal diameter
+	; o24++ 
+	LR   A,(IS)-             ; 0f59 4e ;is=o25
+	LR   A,(IS)              ; 0f5a 4c ;is=o24
+	INC                      ; 0f5b 1f
+	LR   (IS)+,A             ; 0f5c 5d ;is=o24
+	; set hcount to the new hdiam
+	; o25 = o24
+	LR   (IS)+,A             ; 0f5d 5d ;is=o25
+	;is=o26
+	
+	; spiral count--
+	; o36--
+	LISU 3                   ; 0f5e 63
+	DS   (IS)                ; 0f5f 3c 
+	LISU 2                   ; 0f60 62
+	; save flags from spiral count--
+	LR   J,W                 ; 0f61 1e
 				
 	; Play sound ?
 	LR   A,$2                ; 0f62 42
 	OUTS 5                   ; 0f63 b5
-
-                BNZ  drawSpiral.label_1            ; 0f64 94 c0
-
-                DS   (IS)                ; 0f66 3c
-                BR   drawSpiral.label_1            ; 0f67 90 bd
+	
+	BNZ  drawSpiral.label_1            ; 0f64 94 c0
+	; vcount--
+	DS   (IS)                ; 0f66 3c ;is=o26
+	BR   drawSpiral.label_1            ; 0f67 90 bd
 	
 drawSpiral.exit: ; Return
 	LR   P,K                 ; 0f69 09
