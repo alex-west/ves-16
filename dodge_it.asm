@@ -2025,6 +2025,8 @@ A0e41:
 ;----------------------------
 
 ; Game Over / Death Animation
+gameOver.spiralRadius = 046
+
 gameOver:
 	; ypos = $24
 	; color = $80
@@ -2222,23 +2224,22 @@ A0ef1:          LR   A,(IS)              ; 0ef1 4c
 ; mid-level function
 ; 
 ; r1 - X pos
-; r2 - Y pos + something else?
+; r2 - Y pos
 ; r4 - Width
 ; r5 - Height
 
 ; Locals
-; o24 - horizontal diameter
-; o25 - horizontal counter
-; o26 - vertical counter
-; o27 - vertical diameter
-; o36 - spiral counter
-;
 ; Note: These take the place of variables used while the game is being played!
+spiral.hdiameter = 024 ; o24 - horizontal diameter
+spiral.hcount = 025    ; o25 - horizontal counter
+spiral.vcount = 026    ; o26 - vertical counter
+spiral.vdiameter = 027 ; o27 - vertical diameter
+spiral.lapcount = 036  ; o36 - spiral lap counter
 
 drawSpiral:
 	LR   K,P                 ; 0f0a 08
 	; Set properties to draw a rect
-	LI   draw.drawRect        ; 0f0b 20 80
+	LI   draw.drawRect       ; 0f0b 20 80
 	LR   draw.glyph, A       ; 0f0d 50
 	
 	; xpos = $34
@@ -2246,147 +2247,138 @@ drawSpiral:
 	LI   $34                 ; 0f0e 20 34
 	LR   draw.xpos, A        ; 0f10 51
 	
-                LISU 2                   ; 0f11 62
-                LISL 4                   ; 0f12 6c
+	SETISAR spiral.hdiameter              ; 0f11 62 6c
 	
 	; Set width/height to 1
 	LIS  $1                  ; 0f13 71
 	LR   draw.width, A       ; 0f14 54
 	LR   draw.height, A      ; 0f15 55
+	
 	; Set all spiral counters to 1 (o24, o25, o26, o27)
-	LR   (IS)+,A             ; 0f16 5d ;is = 0x14
-	LR   (IS)+,A             ; 0f17 5d ;is = 0x15
-	LR   (IS)+,A             ; 0f18 5d ;is = 0x16
-	LR   (IS)-,A             ; 0f19 5e ;is = 0x17
-				; o36 = o46
-                LISU 4                   ; 0f1a 64
-                LR   A,(IS)              ; 0f1b 4c ; is = o46
-                LISU 3                   ; 0f1c 63
-                LR   (IS),A              ; 0f1d 5c ; is = o36
-				; isar = o26
-                LISU 2                   ; 0f1e 62
-				; a = 2
-                LIS  $1                  ; 0f1f 71
-                SL   1                   ; 0f20 13
-                LR   J,W                 ; 0f21 1e ; save flags
-	; Draw
-	PI   drawBox               ; 0f22 28 08 62
+	LR   (IS)+,A             ; 0f16 5d ;is = o24
+	LR   (IS)+,A             ; 0f17 5d ;is = o25
+	LR   (IS)+,A             ; 0f18 5d ;is = o26
+	LR   (IS)-,A             ; 0f19 5e ;is = o27
+	
+	; spiral lap counter = spiral radius
+	SETISARU gameOver.spiralRadius ; 0f1a 64
+	LR   A,(IS)              ; 0f1b 4c ; is = o46
+	SETISARU spiral.lapcount ; 0f1c 63
+	LR   (IS),A              ; 0f1d 5c ; is = o36
+	
+	; set up the ISAR to o26 to start off, and save the flags from a dummy
+	; arithmetic operation to prevent the "LR W,J" a few lines down causing a
+	; spurious branch (exiting the function early)
+	SETISARU spiral.vcount   ; 0f1e 62
+	LIS  $1                  ; 0f1f 71
+	SL   1                   ; 0f20 13
+	
+	; save flags so the "LR W,J" doesn't cause a spurious branch 7 instructions down
+	LR   J,W                 ; 0f21 1e ; save flags
 
-drawSpiral.label_1: ; plot up         
-	; ypos++
-	DS   draw.ypos             ; 0f25 32
-	PI   drawBox               ; 0f26 28 08 62
+	PI   drawBox             ; 0f22 28 08 62
+drawSpiral.plotUp: ; plot up
+	; ypos--
+	DS   draw.ypos           ; 0f25 32
+	PI   drawBox             ; 0f26 28 08 62
 	; decrement vertical counter
 	; o26--
 	DS   (IS)                ; 0f29 3c ; is = 0x16
-	; Loop until vcount reaches 0
-	BNZ   drawSpiral.label_1            ; 0f2a 94 fa
+	; loop until vcount reaches 0
+	BNZ   drawSpiral.plotUp  ; 0f2a 94 fa
 	
+	; goto exit if o36 (spiral lap counter) is zero
 	LR   W,J                 ; 0f2c 1d ; restore flags
-	; goto exit if o36 (spiral counter) is zero
-	BZ   drawSpiral.exit             ; 0f2d 84 3b
+	BZ   drawSpiral.exit     ; 0f2d 84 3b
 
-	; increment vertical diameter
-	; o27++
+	; vdiameter++ (o27)
 	LR   A,(IS)+             ; 0f2f 4d
 	LR   A,(IS)              ; 0f30 4c ; is=o27
 	INC                      ; 0f31 1f
 	LR   (IS)-,A             ; 0f32 5e
-	; set vcount to the new vdiam
-	; o26 = o27
+	; vcount = vdiameter
 	LR   (IS)-,A             ; 0f33 5e ;is=o26
-	;is=o25
-
-drawSpiral.label_2: ; plot right         
+									   ;is=o25
+drawSpiral.plotRight: ; plot right         
 	; xpos++
 	LR   A, draw.xpos        ; 0f34 41
 	INC                      ; 0f35 1f
 	LR   draw.xpos, A        ; 0f36 51
 	PI   drawBox             ; 0f37 28 08 62
-	; Decrease horizontal counter
-	; o25--
+	; hcount-- (o25)
 	DS   (IS)                ; 0f3a 3c
 	; loop until hcount reaches 0
-	BNZ   drawSpiral.label_2            ; 0f3b 94 f8
+	BNZ   drawSpiral.plotRight ; 0f3b 94 f8
 	
 	; Clear sound
-	CLR                  ; 0f3d 70
+	CLR                      ; 0f3d 70
 	OUTS 5                   ; 0f3e b5
 
-	; increment horizontal diameter
-	; o24++
+	; hdiameter++ (o24)
 	LR   A,(IS)-             ; 0f3f 4e ;is=o25
 	LR   A,(IS)              ; 0f40 4c ;is=o24
 	INC                      ; 0f41 1f
 	LR   (IS)+,A             ; 0f42 5d ;is=o24
-	; set hcount to new hdiam
-	; o25 = o24
+	; hcount = hdiameter
 	LR   (IS)+,A             ; 0f43 5d ;is=o25
-	;is=o26
-				
-drawSpiral.label_3: ; plot down
+									   ;is=o26
+drawSpiral.plotDown: ; plot down
 	; ypos++
 	LR   A, draw.ypos        ; 0f44 42
 	INC                      ; 0f45 1f
 	LR   draw.ypos, A        ; 0f46 52
-	; plot
-	PI   drawBox               ; 0f47 28 08 62
-	; decrement vcount
-	; o26--
-	DS   (IS)                ; 0f4a 3c
-	BNZ   drawSpiral.label_3              ; 0f4b 94 f8
+	PI   drawBox             ; 0f47 28 08 62
+	; vcount-- (o26)
+	DS   (IS)                 ; 0f4a 3c
+	BNZ   drawSpiral.plotDown ; 0f4b 94 f8
 
-	; increment vertical diameter
-	; o27++
+	; vdiameter++ (o27)
 	LR   A,(IS)+             ; 0f4d 4d ;is=o26
 	LR   A,(IS)              ; 0f4e 4c ;is=o27
 	INC                      ; 0f4f 1f
 	LR   (IS)-,A             ; 0f50 5e ;is=o27
-	; set vcount to the new vdiam
+	; vcount = vdiameter
 	; o26 = o27
 	LR   (IS)-,A             ; 0f51 5e ;is=o26
-	;is=o25
-				
-drawSpiral.label_4: ; plot left
+									   ;is=o25
+drawSpiral.plotLeft: ; plot left
 	; xpos--
 	DS   draw.xpos           ; 0f52 31
-	PI   drawBox               ; 0f53 28 08 62
-	; decrement hcount
-	; o25--
-	DS   (IS)                ; 0f56 3c
-	BNZ   drawSpiral.label_4            ; 0f57 94 fa
+	PI   drawBox             ; 0f53 28 08 62
+	; hcount-- (o25)
+	DS   (IS)                 ; 0f56 3c
+	BNZ   drawSpiral.plotLeft ; 0f57 94 fa
 
-	; increment horizontal diameter
-	; o24++ 
+	; hdiameter++ (o24) 
 	LR   A,(IS)-             ; 0f59 4e ;is=o25
 	LR   A,(IS)              ; 0f5a 4c ;is=o24
 	INC                      ; 0f5b 1f
 	LR   (IS)+,A             ; 0f5c 5d ;is=o24
-	; set hcount to the new hdiam
-	; o25 = o24
+	; hcount = hdiameter
 	LR   (IS)+,A             ; 0f5d 5d ;is=o25
-	;is=o26
-	
-	; spiral count--
-	; o36--
-	LISU 3                   ; 0f5e 63
+									   ;is=o26
+	; spiral count-- (o36)
+	SETISARU spiral.lapcount ; 0f5e 63
 	DS   (IS)                ; 0f5f 3c 
-	LISU 2                   ; 0f60 62
-	; save flags from spiral count--
+	SETISARU spiral.vcount   ; 0f60 62
+	; save flags (to be used above shortly after drawSpiral.plotUp)
 	LR   J,W                 ; 0f61 1e
 				
-	; Play sound ?
+	; Play sound
 	LR   A,$2                ; 0f62 42
 	OUTS 5                   ; 0f63 b5
 	
-	BNZ  drawSpiral.label_1            ; 0f64 94 c0
+	BNZ  drawSpiral.plotUp   ; 0f64 94 c0
+	
 	; vcount--
 	DS   (IS)                ; 0f66 3c ;is=o26
-	BR   drawSpiral.label_1            ; 0f67 90 bd
+	BR   drawSpiral.plotUp   ; 0f67 90 bd
 	
 drawSpiral.exit: ; Return
 	LR   P,K                 ; 0f69 09
 	POP                      ; 0f6a 1c
+; end drawSpiral function
+;-----------------------------
 
 ;-----------------------------
 ; Explode every time the timer reaches 1000
@@ -2459,8 +2451,11 @@ explode.yloop:
                 LR   (IS),A              ; 0f97 5c
 	; Exit
 	JMP  mainLoop               ; 0f98 29 0d a0
+; end explosion procedure
+;-----------------------------
 	
     db $b2 ; Unused?
+
 	; Free space - 94 bytes!
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
@@ -2468,4 +2463,5 @@ explode.yloop:
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+
 ; EoF
