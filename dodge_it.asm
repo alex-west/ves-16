@@ -416,6 +416,8 @@ RNG.roll:
 	LR   IS,A                ; 08ee 0b
 	; Return
 	POP                      ; 08ef 1c
+; end of RNG function
+;----------------------------
 
 ;----------------------------
 ; Menu
@@ -501,7 +503,7 @@ readControllers:
 	; If the result is zero, return
 	BZ   readControllers.exit               ; 091c 84 06
 	
-	; else, shuffle RNG ?
+	; else, shuffle RNG
 	; switch to o77
 	SETISARL RNG.seedLo     ; 091e 6f
 	LIS  $1                  ; 091f 71
@@ -663,53 +665,70 @@ delay.inner:
 	BNZ  delay.inner         ; 099c 94 fe
 	DS   delay.count         ; 099e 30
 	BNZ  delay.variable      ; 099f 94 fa
-	; Return
+
 	POP                      ; 09a1 1c
 ; end of delay function
 ;----------------------------
 	
-
+;----------------------------
+; save ball function
+;  saves the temp xpos, ypos, and velocity of a ball to their arrays
 ; Args
-; r0 = velocity
-; r1 = xpos
-; r2 = ypos
-; rb = index
-; Clobber
-; r3 ?
+saveBall.velocity = $0
+saveBall.xpos = $1
+saveBall.ypos = $2
+; Local
+saveBall.mask = $3
+
 saveBall:          
-				; xpos[b] = r1
-				LI   balls.xpos          ; 09a2 20 10
-                AS   main.curBall        ; 09a4 cb
-                LR   IS,A                ; 09a5 0b
-                LR   A,$1                ; 09a6 41
-                LR   (IS),A              ; 09a7 5c
-                ; ypos[b] = r2
-				LR   A,IS                ; 09a8 0a
-                AI   balls.arraySize     ; 09a9 24 0b
-                LR   IS,A                ; 09ab 0b
-                LR   A,$2                ; 09ac 42
-                LR   (IS),A              ; 09ad 5c
-				; set velocity according to some formula
-                LR   A, main.curBall     ; 09ae 4b
-                SR   1                   ; 09af 12
-                AI   balls.velocity      ; 09b0 24 26
-                LR   IS,A                ; 09b2 0b
-                LIS  $1                  ; 09b3 71
-                NS   main.curBall        ; 09b4 fb
-                LIS  $f                  ; 09b5 7f
-                BNZ   A09b9              ; 09b6 94 02
-                COM                      ; 09b8 18
+	; xpos[b] = r1
+	LI   balls.xpos          ; 09a2 20 10
+	AS   main.curBall        ; 09a4 cb
+	LR   IS,A                ; 09a5 0b
+	LR   A,saveBall.xpos     ; 09a6 41
+	LR   (IS),A              ; 09a7 5c
+	
+	; ypos[b] = r2
+	LR   A,IS                ; 09a8 0a
+	AI   balls.arraySize     ; 09a9 24 0b
+	LR   IS,A                ; 09ab 0b
+	LR   A,saveBall.ypos     ; 09ac 42
+	LR   (IS),A              ; 09ad 5c
+	
+	; calculater index and bitmask for the bitpacked velocity array
+	; isar = velocity array + curBall/2
+	LR   A, main.curBall     ; 09ae 4b
+	SR   1                   ; 09af 12
+	AI   balls.velocity      ; 09b0 24 26
+	LR   IS,A                ; 09b2 0b
+	
+	; if curBall is even
+	;  bitmask = %00001111
+	; else 
+	;  bitmask = %11110000
+	LIS  $1                  ; 09b3 71
+	NS   main.curBall        ; 09b4 fb
+	LIS  %00001111           ; 09b5 7f
+	BNZ   A09b9              ; 09b6 94 02
+	COM                      ; 09b8 18
 A09b9:          
-				LR   $3,A                ; 09b9 53
-                COM                      ; 09ba 18
-                NS   (IS)                ; 09bb fc
-                LR   (IS),A              ; 09bc 5c
-                LR   A,$0                ; 09bd 40
-                NS   $3                  ; 09be f3
-                AS   (IS)                ; 09bf cc
-                LR   (IS),A              ; 09c0 5c
-				; exit
-                POP                      ; 09c1 1c
+	LR   saveBall.mask,A     ; 09b9 53
+
+	; clear curBall's bitfield from the velocity byte
+	COM                      ; 09ba 18
+	NS   (IS)                ; 09bb fc
+	LR   (IS),A              ; 09bc 5c
+	; extract the velocity bitfield from the input argument
+	LR   A,saveBall.velocity ; 09bd 40
+	NS   saveBall.mask       ; 09be f3
+	; merge the bitfields
+	AS   (IS)                ; 09bf cc
+	LR   (IS),A              ; 09c0 5c
+
+	; exit
+	POP                      ; 09c1 1c
+; end save ball function
+;----------------------------
 
 ;----------------------------
 ; Spawn ball
@@ -1451,7 +1470,7 @@ A0c59:          LR   (IS),A              ; 0c59 5c
 ;----------------------------
 
 ;----------------------------
-; Set playfield bounds? Along one axis?
+; Set playfield bounds (for one access)
 ; Args
 ;  r1 - ??
 ;  r2 - 
@@ -1611,6 +1630,7 @@ A0ca0:
 flash.exit:     
 	LR   P,K                 ; 0cc6 09
 	POP                      ; 0cc7 1c
+; end screen flash function
 ;----------------------------
 
 ;----------------------------
@@ -2024,24 +2044,23 @@ A0e41:
 ; end of main loop
 ;----------------------------
 
+;----------------------------
 ; Game Over / Death Animation
+; top level procedure
 gameOver.spiralRadius = 046
 
 gameOver:
-	; ypos = $24
-	; color = $80
+	; ypos = $24, color = $80
 	LI   $80 | $24 ;$a4                 ; 0e44 20 a4
 	LR   draw.ypos, A        ; 0e46 52
-	; o46 = $14 (spiral radius?)
-	LISU 4                   ; 0e47 64
-	LISL 6                   ; 0e48 6e
+	; spiralRadius = $14
+	SETISAR gameOver.spiralRadius ; 0e47 64 6e
 	LI   $14                 ; 0e49 20 14
 	LR   (IS),A              ; 0e4b 5c
 gameOver.spiralLoop:
 	PI   drawSpiral          ; 0e4c 28 0f 0a
-	; o46--
-	LISU 4                   ; 0e4f 64
-	LISL 6                   ; 0e50 6e
+	; spiralRadius--
+	SETISAR gameOver.spiralRadius ; 0e4f 64 6e
 	DS   (IS)                ; 0e51 3c
 	; save flags
 	LR   J,W                 ; 0e52 1e
@@ -2067,15 +2086,13 @@ gameOver.label1:
 	LR   delay.count, A      ; 0e63 50
 	PI   delay.variable      ; 0e64 28 09 9a
 
-				; Set color depending on who died
-				; 1P - Red
-				; 2P, player 1 - Green
-				; 2P, player 2 - Blue
-				SETISAR gameMode
-;                LISU 7                   ; 0e67 67
-;                LISL 5                   ; 0e68 6d
-                LIS  $1                  ; 0e69 71
-                NS   (IS)                ; 0e6a fc
+	; Set color depending on who died
+	; 1P - Red
+	; 2P, player 1 - Green
+	; 2P, player 2 - Blue
+	SETISAR gameMode         ; 0e67 67 6d
+	LIS  mode.2playerMask    ; 0e69 71
+	NS   (IS)                ; 0e6a fc
                 LI   $80                 ; 0e6b 20 80
                 BZ   A0e78             ; 0e6d 84 0a
                 LISL 1                   ; 0e6f 69
@@ -2084,13 +2101,15 @@ gameOver.label1:
                 LI   $c0                 ; 0e72 20 c0
                 BZ   A0e78             ; 0e74 84 03
                 LI   $40                 ; 0e76 20 40
-A0e78:          AI   $24                 ; 0e78 24 24
-                LR   $2,A                ; 0e7a 52
-                LISU 4                   ; 0e7b 64
-                LISL 6                   ; 0e7c 6e
-                LI   $14                 ; 0e7d 20 14
-                LR   (IS),A              ; 0e7f 5c
-                PI   drawSpiral               ; 0e80 28 0f 0a
+A0e78:
+	; Set ypos
+	AI   $24                 ; 0e78 24 24
+	LR   $2,A                ; 0e7a 52
+	; draw spiral
+	SETISAR gameOver.spiralRadius ; 0e7b 64 6e
+	LI   $14                 ; 0e7d 20 14
+	LR   (IS),A              ; 0e7f 5c
+	PI   drawSpiral               ; 0e80 28 0f 0a
 
 	; Delay
 	LI   $28                 ; 0e83 20 28
@@ -2146,12 +2165,13 @@ A0eb2:
 	PI   delay.variable      ; 0eb5 28 09 9a
 	; Read controllers
 	PI   readControllers     ; 0eb8 28 09 10
-				; If controller is pushed, keep gametype?
+				; If controller is pushed, keep gametype
                 LISL 0                   ; 0ebb 68
                 CLR                  ; 0ebc 70
                 AS   (IS)                ; 0ebd cc
                 BM   A0ec3            ; 0ebe 91 04
-                JMP  restartGame               ; 0ec0 29 0d 54
+	JMP  restartGame               ; 0ec0 29 0d 54
+
 				; Shuffle gametype
 A0ec3:          JMP  A0d18               ; 0ec3 29 0d 18
 
@@ -2206,8 +2226,9 @@ A0ef1:          LR   A,(IS)              ; 0ef1 4c
                 ASD  (IS)                ; 0ef6 dc
                 LR   (IS)+,A             ; 0ef7 5d
                 PI   drawTimer           ; 0ef8 28 0a 20 ; Score display
-				; Read controllers
-                PI   readControllers               ; 0efb 28 09 10
+
+; Read controllers
+	PI   readControllers               ; 0efb 28 09 10
                 ; If neither player is touching anything, shuffle gametype
 				LISL 0                   ; 0efe 68
                 CLR                  ; 0eff 70
@@ -2216,9 +2237,12 @@ A0ef1:          LR   A,(IS)              ; 0ef1 4c
                 CLR                  ; 0f03 70
                 AS   (IS)                ; 0f04 cc
                 BM   A0ec3            ; 0f05 91 bd
-				; Else, just restart the current game
-                JMP  restartGame               ; 0f07 29 0d 54
 
+	; Else, just restart the current game
+	JMP  restartGame               ; 0f07 29 0d 54
+; end of game over procedure
+;----------------------------
+				
 ;-----------------------------
 ; Draw Spiral (for death animation)
 ; mid-level function
@@ -2266,14 +2290,14 @@ drawSpiral:
 	SETISARU spiral.lapcount ; 0f1c 63
 	LR   (IS),A              ; 0f1d 5c ; is = o36
 	
-	; set up the ISAR to o26 to start off, and save the flags from a dummy
-	; arithmetic operation to prevent the "LR W,J" a few lines down causing a
-	; spurious branch (exiting the function early)
+	; set ISAR
 	SETISARU spiral.vcount   ; 0f1e 62
+	
+	; dummy arithmetic operation
 	LIS  $1                  ; 0f1f 71
 	SL   1                   ; 0f20 13
-	
-	; save flags so the "LR W,J" doesn't cause a spurious branch 7 instructions down
+	; save the flags from that operation to prevent the "LR W,J" a few lines
+	; down from causing the function to erroneously return early
 	LR   J,W                 ; 0f21 1e ; save flags
 
 	PI   drawBox             ; 0f22 28 08 62
@@ -2281,8 +2305,7 @@ drawSpiral.plotUp: ; plot up
 	; ypos--
 	DS   draw.ypos           ; 0f25 32
 	PI   drawBox             ; 0f26 28 08 62
-	; decrement vertical counter
-	; o26--
+	; vcount-- (o26)
 	DS   (IS)                ; 0f29 3c ; is = 0x16
 	; loop until vcount reaches 0
 	BNZ   drawSpiral.plotUp  ; 0f2a 94 fa
@@ -2406,7 +2429,7 @@ explode.xloop:
 	NS   (IS)                ; 0f73 fc
 	AI   explode.xpos                 ; 0f74 24 30
 	LR   (IS),A              ; 0f76 5c
-	; increment ISAR (did the programmer forget about the ISAR post-increment/)
+	; increment ISAR (did the programmer forget about the ISAR post-increment?)
 	LR   A,IS                ; 0f77 0a
 	INC                      ; 0f78 1f
 	LR   IS,A                ; 0f79 0b
@@ -2441,14 +2464,13 @@ explode.yloop:
                 LR   (IS)+,A             ; 0f90 5d
                 LR   (IS)+,A             ; 0f91 5d
 				
-				; Clear top bit of game mode (TODO: Find out why)
-				SETISAR gameMode
-;                LISU 7                   ; 0f92 67
- ;               LISL 5                   ; 0f93 6d
-                LR   A,(IS)              ; 0f94 4c
-                SL   1                   ; 0f95 13
-                SR   1                   ; 0f96 12
-                LR   (IS),A              ; 0f97 5c
+	; Clear top bit of game mode (TODO: Find out why)
+	SETISAR gameMode         ; 0f92 67 6d
+	LR   A,(IS)              ; 0f94 4c
+	SL   1                   ; 0f95 13
+	SR   1                   ; 0f96 12
+	LR   (IS),A              ; 0f97 5c
+
 	; Exit
 	JMP  mainLoop               ; 0f98 29 0d a0
 ; end explosion procedure
