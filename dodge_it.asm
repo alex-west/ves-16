@@ -138,18 +138,18 @@ delayTableA:
 delayTableB:
 	db $0b, $0a, $09, $08, $07, $06, $05, $04, $03, $02, $01
 
-; Game mode table ?
-A0843:
+; Bitmasks used while randomizing the game mode
+gameModeMasks:
 	db $C0, $30, $0C, $03, $FC ; 0843 c0 30 0c 03 fc
 				
-; Playfield bounds ? Unused ??
+; Referenced but never read, it seems
 A0848:
 	db $00, $00, $12, $0B, $0B, $06, $02, $01 ; 0848 00 00 12 0b 0b 06 02 01
 
 ballColors: ; blue, green, red ?
 	db $40, $C0, $80 ; 0850 40 c0 80
 	
-A0853: ;Used by menu...
+menuChoices:
 	db $00, $01, $02, $03, $03  ; 0853 00 01
 	
 ; --?
@@ -443,7 +443,7 @@ menu:
 	
 menu.pollInput:
 	PI   RNG.roll            ; 08f9 28 08 c1
-	DCI  A0853               ; 08fc 2a 08 53
+	DCI  menuChoices               ; 08fc 2a 08 53
 	; Read console buttons
 	CLR                  ; 08ff 70
 	OUTS 0                   ; 0900 b0
@@ -520,6 +520,12 @@ readControllers.exit:
 	
 ;----------------------------	
 ; HandlePlayerMovement
+;
+; Args
+tempVelocity = $0
+tempXpos = $1
+tempYpos = $2
+;  
 playerHandler:
 	LR   K,P                 ; 0924 08
 	PI   readControllers               ; 0925 28 09 10
@@ -539,12 +545,14 @@ A0930:          LR   $b,A                ; 0930 5b
 				; r0 = 0
 A0933:          CLR                  ; 0933 70
                 LR   $0,A                ; 0934 50
+
 				; r1 = xpos[r11]
                 LR   A,$b                ; 0935 4b
                 AI   balls.xpos          ; 0936 24 10
                 LR   IS,A                ; 0938 0b
                 LR   A,(IS)              ; 0939 4c
-                LR   $1,A                ; 093a 51
+                LR   tempXpos,A          ; 093a 51
+
 				; r2 = ypos[r11]
                 LR   A,IS                ; 093b 0a
                 AI   balls.arraySize     ; 093c 24 0b
@@ -561,56 +569,61 @@ A0933:          CLR                  ; 0933 70
                 SETISARL controller2     ; 0944 69
                 BNZ   A0948            ; 0945 94 02
                 SETISARL controller1     ; 0947 68
-				; Check if a direction is pressed
-A0948:          LIS  $1                  ; 0948 71
+
+				; Check if right is pressed
+A0948:          LIS  CONTROL_RIGHT       ; 0948 71
                 NS   (IS)                ; 0949 fc
-                BNZ   A0951            ; 094a 94 06
-                ;
-				LR   A,$1                ; 094c 41
+                BNZ   A0951              ; 094a 94 06
+				LR   A,tempXpos          ; 094c 41
                 NI   $7f                 ; 094d 21 7f
-                BR   A0958            ; 094f 90 08
+                BR   A0958               ; 094f 90 08
+
 				; Check if a different direction is pressed
-A0951:          LIS  $2                  ; 0951 72
+A0951:          LIS  CONTROL_LEFT        ; 0951 72
                 NS   (IS)                ; 0952 fc
                 BNZ   A095c            ; 0953 94 08
-                LR   A,$1                ; 0955 41
-                OI   $80                 ; 0956 22 80				
+                LR   A,tempXpos          ; 0955 41
+                OI   $80                 ; 0956 22 80
+				
 A0958:          LR   $1,A                ; 0958 51
 				LIS  $c                  ; 0959 7c
                 NS   $a                  ; 095a fa
                 LR   $0,A                ; 095b 50
+				
 				; Check if a direction is pressed
-A095c:          LIS  $4                  ; 095c 74
+A095c:          LIS  CONTROL_BACKWARD    ; 095c 74
                 NS   (IS)                ; 095d fc
-                BNZ   A0965            ; 095e 94 06
-                LR   A,$2                ; 0960 42
+                BNZ   A0965              ; 095e 94 06
+                LR   A,tempYpos          ; 0960 42
                 NI   $3f                 ; 0961 21 3f
-                BR   A096c            ; 0963 90 08
+                BR   A096c               ; 0963 90 08
+				
 				; Check if a direction is pressed
-A0965:          LIS  $8                  ; 0965 78
+A0965:          LIS  CONTROL_FORWARD     ; 0965 78
                 NS   (IS)                ; 0966 fc
-                BNZ   A0973            ; 0967 94 0b
-                LR   A,$2                ; 0969 42
+                BNZ   A0973              ; 0967 94 0b
+                LR   A,tempYpos          ; 0969 42
                 OI   $80                 ; 096a 22 80
+				
 A096c:          LR   $2,A                ; 096c 52
-				; ??
                 LIS  $c                  ; 096d 7c
                 NS   $a                  ; 096e fa
                 SR   1                   ; 096f 12
                 SR   1                   ; 0970 12
                 AS   $0                  ; 0971 c0
                 LR   $0,A                ; 0972 50
+
 A0973:          LR   A,$0                ; 0973 40
                 SL   4                   ; 0974 15
                 AS   $0                  ; 0975 c0
                 LR   $0,A                ; 0976 50
-				; What ?
-                PI   saveBall               ; 0977 28 09 a2
+                PI   saveBall            ; 0977 28 09 a2
                 LIS  $1                  ; 097a 71
                 NS   $b                  ; 097b fb
                 CLR                  ; 097c 70
                 BNZ   A0980            ; 097d 94 02
                 LIS  $1                  ; 097f 71
+
 A0980:          LR   $b,A                ; 0980 5b
                 DS   $8                  ; 0981 38
                 BNZ   A0933            ; 0982 94 b0
@@ -1470,7 +1483,7 @@ A0c59:          LR   (IS),A              ; 0c59 5c
 ;----------------------------
 
 ;----------------------------
-; Set playfield bounds (for one access)
+; Set playfield bounds (for one axis)
 ; Args
 ;  r1 - ??
 ;  r2 - 
@@ -1728,65 +1741,75 @@ initRoutine:
 	LR   draw.xpos, A        ; 0d0b 51
 	PI   drawGlyph           ; 0d0c 28 08 58
 	
-	; Menu
-	PI   menu               ; 0d0f 28 08 f0
-				
-				; Load game mode into o75
-	SETISAR gameMode
-    ;            LISU 7                   ; 0d12 67
-     ;           LISL 5                   ; 0d13 6d
-                SR   1                   ; 0d14 12
-				; DC was set in the menu
-                ADC                      ; 0d15 8e
-                LM                       ; 0d16 16
-                LR   (IS),A              ; 0d17 5c
+	; returns button pressed in the accumulator
+	PI   menu                ; 0d0f 28 08 f0
+
+	; Use a table to put the number of the button pressed into the lower two
+	;  bits of gameMode
+	SETISAR gameMode         ; 0d12 67 6d
+	SR   1                   ; 0d14 12
+	; DC was set in the menu
+	ADC                      ; 0d15 8e
+	LM                       ; 0d16 16
+	LR   (IS),A              ; 0d17 5c
 				
 ; Shuffle gametype
 A0d18:          
-	SETISAR gameMode
-;			LISU 7                   ; 0d18 67
- ;               LISL 5                   ; 0d19 6d
-                LR   A,(IS)              ; 0d1a 4c
-                NI   $03                 ; 0d1b 21 03
-                LR   (IS),A              ; 0d1d 5c
+	SETISAR gameMode                     ; 0d18 67 6d
+	; preserve the player and game speed bits of gameMode
+	LR   A,(IS)              ; 0d1a 4c
+	NI   %00000011           ; 0d1b 21 03
+	LR   (IS),A              ; 0d1d 5c
 
 A0d1e:
-	DCI  A0843               ; 0d1e 2a 08 43
+	DCI  gameModeMasks               ; 0d1e 2a 08 43
 	PI   RNG.roll            ; 0d21 28 08 c1
-				
-                LM                       ; 0d24 16
-                NS   RNG.regHi           ; 0d25 f6
-                LR   $8,A                ; 0d26 58
-                LM                       ; 0d27 16
-                NS   RNG.regHi           ; 0d28 f6
-                SL   1                   ; 0d29 13
-                SL   1                   ; 0d2a 13
-                AS   $8                  ; 0d2b c8
-                BNC   A0d1e              ; 0d2c 92 f1
-				
-                LM                       ; 0d2e 16
-                NS   RNG.regHi           ; 0d2f f6
-                BZ   A0d1e               ; 0d30 84 ed
-				
-                LM                       ; 0d32 16
-                NS   RNG.regHi           ; 0d33 f6
-                BZ   A0d1e               ; 0d34 84 e9
-				
-                LR   A, RNG.regHi        ; 0d36 46
-                LR   $a,A                ; 0d37 5a
-                LM                       ; 0d38 16
-                NS   RNG.regLo           ; 0d39 f7
-                AS   (IS)                ; 0d3a cc
-                LR   (IS)-,A             ; 0d3b 5e
-
-				; I don't think this array ever gets read
-                DCI  A0848               ; 0d3c 2a 08 48
-                LIS  $3                  ; 0d3f 73
-                NS   $a                  ; 0d40 fa
-                SL   1                   ; 0d41 13
-                ADC                      ; 0d42 8e
 	
-	; setplayfield bounds for x axis
+	; put bits 6 and 7 of RNG into r8
+	LM                       ; 0d24 16
+	NS   RNG.regHi           ; 0d25 f6
+	LR   $8,A                ; 0d26 58
+	
+	; add bits 4 and 5 of RNG to bits 6 and 7 r8
+	; redo it no carry
+	LM                       ; 0d27 16
+	NS   RNG.regHi           ; 0d28 f6
+	SL   1                   ; 0d29 13
+	SL   1                   ; 0d2a 13
+	AS   $8                  ; 0d2b c8
+	BNC   A0d1e              ; 0d2c 92 f1
+	; this is to make sure player and ball widths do not sum to less than 4
+	
+	; make sure at least one of bits 2 and 3 of RNG are set
+	LM                       ; 0d2e 16
+	NS   RNG.regHi           ; 0d2f f6
+	BZ   A0d1e               ; 0d30 84 ed
+
+	; make sure at least one of bits 0 and 1 of RNG are set
+	LM                       ; 0d32 16
+	NS   RNG.regHi           ; 0d33 f6
+	BZ   A0d1e               ; 0d34 84 e9
+
+	; store the results in r10
+	LR   A, RNG.regHi        ; 0d36 46
+	LR   $a,A                ; 0d37 5a
+
+	; put the upper six bits of the RNG into game mode
+	LM                       ; 0d38 16
+	NS   RNG.regLo           ; 0d39 f7
+	AS   (IS)                ; 0d3a cc
+	LR   (IS)-,A             ; 0d3b 5e
+
+	; DC = (lower 2 bits of r10)*2
+	; I don't think this array ever gets read
+	; Each array element would have been 2 bytes
+	DCI  A0848               ; 0d3c 2a 08 48
+	LIS  $3                  ; 0d3f 73
+	NS   $a                  ; 0d40 fa
+	SL   1                   ; 0d41 13
+	ADC                      ; 0d42 8e
+	
+	; set playfield bounds for x axis
 	LI   $58                 ; 0d43 20 58
 	LR   $1,A                ; 0d45 51
 	LI   $10                 ; 0d46 20 10
