@@ -36,7 +36,8 @@ main.curBall = $B
 ; Balls
 balls.xpos = $10 ; Array
 balls.arraySize = $0B ; Constant
-balls.velocity = $26
+balls.velocity = 046 ; Bitpacked array
+balls.count = 056
 
 ; Arena Bounds
 bounds.rightEnemy = 060
@@ -50,15 +51,24 @@ bounds.top = 065
 timer.hiByte = 066
 timer.loByte = 067
 
+hiScore.hiByte = 054
+hiScore.loByte = 055
+
 ; Game mode
 gameMode = 075
 mode.speedMask = $02
 mode.2playerMask = $01
 
+;errata
+delayIndex = 057
 
 ;--------------------
 ; Constants
 MAX_PLAYERS = 2
+MAX_ENEMIES = 9
+MAX_BALLS = 11
+
+BCD_ADJUST = $66 ; This should probably be in ves.h
 
 ; Graphics
 gfx.attributeCol = $7d
@@ -1752,16 +1762,16 @@ initRoutine:
 	ADC                      ; 0d15 8e
 	LM                       ; 0d16 16
 	LR   (IS),A              ; 0d17 5c
-				
+
 ; Shuffle gametype
-A0d18:          
+shuffleGameType:          
 	SETISAR gameMode                     ; 0d18 67 6d
 	; preserve the player and game speed bits of gameMode
 	LR   A,(IS)              ; 0d1a 4c
 	NI   %00000011           ; 0d1b 21 03
 	LR   (IS),A              ; 0d1d 5c
 
-A0d1e:
+shuffleGameTypeReroll:
 	DCI  gameModeMasks               ; 0d1e 2a 08 43
 	PI   RNG.roll            ; 0d21 28 08 c1
 	
@@ -1777,24 +1787,24 @@ A0d1e:
 	SL   1                   ; 0d29 13
 	SL   1                   ; 0d2a 13
 	AS   $8                  ; 0d2b c8
-	BNC   A0d1e              ; 0d2c 92 f1
+	BNC   shuffleGameTypeReroll              ; 0d2c 92 f1
 	; this is to make sure player and ball widths do not sum to less than 4
 	
 	; make sure at least one of bits 2 and 3 of RNG are set
 	LM                       ; 0d2e 16
 	NS   RNG.regHi           ; 0d2f f6
-	BZ   A0d1e               ; 0d30 84 ed
+	BZ   shuffleGameTypeReroll               ; 0d30 84 ed
 
 	; make sure at least one of bits 0 and 1 of RNG are set
 	LM                       ; 0d32 16
 	NS   RNG.regHi           ; 0d33 f6
-	BZ   A0d1e               ; 0d34 84 e9
+	BZ   shuffleGameTypeReroll               ; 0d34 84 e9
 
 	; store the results in r10
 	LR   A, RNG.regHi        ; 0d36 46
 	LR   $a,A                ; 0d37 5a
 
-	; put the upper six bits of the RNG into game mode
+	; put the upper six bits of the RNG into gameMode
 	LM                       ; 0d38 16
 	NS   RNG.regLo           ; 0d39 f7
 	AS   (IS)                ; 0d3a cc
@@ -1821,7 +1831,7 @@ A0d1e:
 	LI   $38                 ; 0d4e 20 38
 	LR   $1,A                ; 0d50 51
 	PI   setBounds               ; 0d51 28 0c 5f
-				
+
 restartGame:          
 	; Draw playfield
 	; Set rendering properties
@@ -1841,7 +1851,7 @@ restartGame:
 	LR   draw.height, A      ; 0d62 55
 	; Draw box
 	PI   drawBox               ; 0d63 28 08 62
-				
+
 	; Draw inner box
 	; xpos = o62
 	SETISAR bounds.left      ; 0d66 66 6a
@@ -1869,7 +1879,7 @@ restartGame:
 	LR   A,(IS)              ; 0d77 4c
 	LR   draw.ypos, A        ; 0d78 52
 	; height = -(top - bottom) + temp // temp is enemy size
-	SETISARL bounds.bottomEnemy          ; 0d79 6b
+	SETISARL bounds.bottomEnemy; 0d79 6b
 	AS   (IS)                ; 0d7a cc
 	COM                      ; 0d7b 18
 	INC                      ; 0d7c 1f
@@ -1887,71 +1897,73 @@ restartGame:
 	LR   (IS)+,A             ; 0d88 5d
 	LR   (IS)+,A             ; 0d89 5d
 
-	; Do something for 2 balls?
+	; spawn the player balls
 	CLR                  ; 0d8a 70
-A0d8b:          
+startGame.spawnBalls:          
 	LR   main.curBall, A     ; 0d8b 5b
 	PI   spawn               ; 0d8c 28 09 c2
 	LR   A, main.curBall     ; 0d8f 4b
 	INC                      ; 0d90 1f
 	CI   [MAX_PLAYERS-1]     ; 0d91 25 01
-	BC   A0d8b               ; 0d93 82 f7
+	BC   startGame.spawnBalls; 0d93 82 f7
 
-				; o56 = num_balls?
-                LISU 5                   ; 0d95 65
-                LISL 6                   ; 0d96 6e
-                LR   (IS),A              ; 0d97 5c
-                LR   main.curBall, A     ; 0d98 5b
-                PI   spawn               ; 0d99 28 09 c2
-				
-                LISU 7                   ; 0d9c 67
-                LISL 2                   ; 0d9d 6a
-                CLR                  ; 0d9e 70
-                LR   (IS),A              ; 0d9f 5c
+	; spawn the first enemy ball
+	SETISAR balls.count      ; 0d95 65 6e
+	LR   (IS),A              ; 0d97 5c
+	LR   main.curBall, A     ; 0d98 5b
+	PI   spawn               ; 0d99 28 09 c2
 
-; MAIN LOOP 
+	; bit 7 of o72 is the explosion flag (TODO: make this clearer)
+	SETISAR 072              ; 0d9c 67 6a
+	CLR                      ; 0d9e 70
+	LR   (IS),A              ; 0d9f 5c
+
+;----------------------------
+; Beginning of MAIN LOOP 
 mainLoop:
 	; Clear sound
-	CLR                  ; 0da0 70
+	CLR                      ; 0da0 70
 	OUTS 5                   ; 0da1 b5
 				
-				; Change num ball according to timer?
-                LISU 6                   ; 0da2 66
-                LISL 6                   ; 0da3 6e
-                LR   A,(IS)+             ; 0da4 4d
-                INC                      ; 0da5 1f
-                CI   $0a                 ; 0da6 25 0a
-                BC   A0dab             ; 0da8 82 02
-                LIS  $a                  ; 0daa 7a
-A0dab:          LISU 5                   ; 0dab 65
-                LR   (IS),A              ; 0dac 5c
-                LISU 6                   ; 0dad 66
+	; Change delay index according to the timer
+	; if (timer.hi > 10)
+	;   delay index = 10
+	; else
+	;	delay index = timer.hi + 1
+	SETISAR timer.hiByte     ; 0da2 66 6e
+	LR   A,(IS)+             ; 0da4 4d
+	INC                      ; 0da5 1f
+	CI   [MAX_BALLS-1]       ; 0da6 25 0a
+	BC   main.setDelay       ; 0da8 82 02
+	LIS  [MAX_BALLS-1]       ; 0daa 7a
+main.setDelay:
+	SETISARU delayIndex      ; 0dab 65
+	LR   (IS),A              ; 0dac 5c
+	SETISARU timer.loByte    ; 0dad 66
 
-				; Increment 16-bit BCD timer
-				; ISAR is 067 here
-				; BCD increment
-				LI   $67                 ; 0dae 20 67
-                ASD  (IS)                ; 0db0 dc
-                LR   (IS)-,A             ; 0db1 5e
-                BNC   A0dc5            ; 0db2 92 12
-				; Continue if tens carry over				
-                LI   $67                 ; 0db4 20 67
-                ASD  (IS)                ; 0db6 dc
-                LR   (IS)+,A             ; 0db7 5d
-                NI   $0f                 ; 0db8 21 0f
-                BNZ   A0dc5            ; 0dba 94 0a
-				; Continue if hundreds are zero				
-                CLR                  ; 0dbc 70
-                AS   (IS)                ; 0dbd cc
-                BNZ   A0dc5            ; 0dbe 94 06
-				; Continue if tens and ones are both zero
-				; o72 = 0x80 ; Set explosion flag
-                LISU 7                   ; 0dc0 67
-                LISL 2                   ; 0dc1 6a
-                LI   $80                 ; 0dc2 20 80
-                LR   (IS),A              ; 0dc4 5c
+	; Increment 16-bit BCD timer
+	; timer.lo++
+	LI   $01 + BCD_ADJUST    ; 0dae 20 67
+	ASD  (IS)                ; 0db0 dc
+	LR   (IS)-,A             ; 0db1 5e
+	BNC   main.setTimerPos   ; 0db2 92 12
+	; if carry, timer.hi++
+	LI   $01 + BCD_ADJUST    ; 0db4 20 67
+	ASD  (IS)                ; 0db6 dc
+	LR   (IS)+,A             ; 0db7 5d
+	; check if hundreds digit is zero
+	NI   %00001111           ; 0db8 21 0f
+	BNZ   main.setTimerPos   ; 0dba 94 0a
+	; if so, check if tens and ones digits are zero				
+	CLR                      ; 0dbc 70
+	AS   (IS)                ; 0dbd cc
+	BNZ   main.setTimerPos   ; 0dbe 94 06
+	; if so, set the explosion flag
+	SETISAR 072              ; 0dc0 67 6a
+	LI   $80                 ; 0dc2 20 80
+	LR   (IS),A              ; 0dc4 5c
 
-A0dc5:          
+main.setTimerPos:          
 	; Display timer
 	; Check if 1 or 2 player
 	SETISAR gameMode         ; 0dc5 67 6d
@@ -1959,10 +1971,10 @@ A0dc5:
 	NS   (IS)                ; 0dc8 fc
 	; Display in middle if 2 player mode
 	LI   $39                 ; 0dc9 20 39
-	BNZ   A0dcf              ; 0dcb 94 03
+	BNZ   main.drawTimer     ; 0dcb 94 03
 	; Display to left if 1 player mode
 	LI   $1f                 ; 0dcd 20 1f
-A0dcf:          
+main.drawTimer:          
 	LR   drawTimer.xpos, A   ; 0dcf 50
 	; Set y pos (or color ?)
 	LI   $80                 ; 0dd0 20 80
@@ -1970,99 +1982,114 @@ A0dcf:
 	; Set ISAR to LSB of score
 	SETISAR timer.loByte     ; 0dd3 66 6f
 	PI   drawTimer           ; 0dd5 28 0a 20
-				
-                LISU 5                   ; 0dd8 65
-                LISL 7                   ; 0dd9 6f
+
+	; delay(delayIndex)
+	SETISAR delayIndex       ; 0dd8 65 6f
 	LR   A,(IS)              ; 0dda 4c
 	LR   delay.index, A      ; 0ddb 50
-	; Wait
-	PI   delay.viaLookup               ; 0ddc 28 09 86
-                ; rb = o56 (ball count)
-				LISU 5                   ; 0ddf 65
-                LISL 6                   ; 0de0 6e
-                LI   $0f                 ; 0de1 20 0f
-                NS   (IS)+               ; 0de3 fd
-                LR   main.curBall, A     ; 0de4 5b
-                LR   A,(IS)              ; 0de5 4c
-                COM                      ; 0de6 18
-                INC                      ; 0de7 1f
-                AS   $b                  ; 0de8 cb
-                BP   A0df7               ; 0de9 81 0d
+	PI   delay.viaLookup     ; 0ddc 28 09 86
+
+	; set current ball to balls.count
+	SETISAR balls.count      ; 0ddf 65 6e
+	LI   %00001111           ; 0de1 20 0f
+	NS   (IS)+               ; 0de3 fd
+	LR   main.curBall, A     ; 0de4 5b
+	
+	; ISAR is delayIndex
+	; check if curBall >= delayIndex
+	LR   A,(IS)              ; 0de5 4c
+	COM                      ; 0de6 18
+	INC                      ; 0de7 1f
+	AS   main.curBall        ; 0de8 cb
+	; branch ahead if so
+	BP   main.ballLoopInit   ; 0de9 81 0d
+
+	; curBall = delayIndex
+	LR   A,(IS)              ; 0deb 4c
+	LR   main.curBall, A     ; 0dec 5b
+	
+	PI   spawn               ; 0ded 28 09 c2
+	
+	; ball count = delayIndex (preserve upper nybble of ball count)
+	SETISAR balls.count      ; 0df0 65 6e
+	LI   %11110000           ; 0df2 20 f0
+	NS   (IS)+               ; 0df4 fd
+	AS   (IS)-               ; 0df5 ce
+	LR   (IS),A              ; 0df6 5c
 				
-                LR   A,(IS)              ; 0deb 4c
-                LR   main.curBall, A     ; 0dec 5b
-                PI   spawn               ; 0ded 28 09 c2
+main.ballLoopInit:          
+	SETISAR balls.count      ; 0df7 65 6e
+	LI   %00001111           ; 0df9 20 0f
+	NS   (IS)                ; 0dfb fc
+	LR   main.curBall, A     ; 0dfc 5b
 				
-                LISU 5                   ; 0df0 65
-                LISL 6                   ; 0df1 6e
-                LI   $f0                 ; 0df2 20 f0
-                NS   (IS)+               ; 0df4 fd
-                AS   (IS)-               ; 0df5 ce
-                LR   (IS),A              ; 0df6 5c
-A0df7:          LISU 5                   ; 0df7 65
-                LISL 6                   ; 0df8 6e
-                LI   $0f                 ; 0df9 20 0f
-                NS   (IS)                ; 0dfb fc
-                LR   main.curBall, A     ; 0dfc 5b
-A0dfd:          LISU 7                   ; 0dfd 67
-                LISL 0                   ; 0dfe 68
-                LI   $30                 ; 0dff 20 30
-                NS   $a                  ; 0e01 fa
-                SR   4                   ; 0e02 14
-                LR   (IS)+,A             ; 0e03 5d
-                LI   $03                 ; 0e04 20 03
-                NS   $a                  ; 0e06 fa
-                LR   (IS),A              ; 0e07 5c
-                PI   handleBall          ; 0e08 28 0a 53
-				; Collision ?
-                PI   ballCollision               ; 0e0b 28 0b 6e
-				
-                DS   $b                  ; 0e0e 3b
-                LR   A,$b                ; 0e0f 4b
-                CI   $01                 ; 0e10 25 01
-                BNC   A0dfd            ; 0e12 92 ea
-				
-                PI   playerHandler               ; 0e14 28 09 24
-				
-                LISU 7                   ; 0e17 67
-                LISL 0                   ; 0e18 68
-                LI   $c0                 ; 0e19 20 c0
-                NS   $a                  ; 0e1b fa
-                SR   4                   ; 0e1c 14
-                SR   1                   ; 0e1d 12
-                SR   1                   ; 0e1e 12
-                LR   (IS)+,A             ; 0e1f 5d
-                LI   $0c                 ; 0e20 20 0c
-                NS   $a                  ; 0e22 fa
-                SR   1                   ; 0e23 12
-                SR   1                   ; 0e24 12
-                LR   (IS),A              ; 0e25 5c
-                LI   $00                 ; 0e26 20 00
-                LR   $b,A                ; 0e28 5b
-                PI   handleBall               ; 0e29 28 0a 53
-				
-				SETISAR gameMode
-;                LISU 7                   ; 0e2c 67
- ;               LISL 5                   ; 0e2d 6d
-                LIS  $1                  ; 0e2e 71
-                NS   (IS)                ; 0e2f fc
-                BZ   A0e36             ; 0e30 84 05
-				
-                LR   $b,A                ; 0e32 5b
-                PI   handleBall          ; 0e33 28 0a 53
-				
-				; Loop back to beginning if explosion flag isn't set
-A0e36:          LISU 7                   ; 0e36 67
-                LISL 2                   ; 0e37 6a
-                CLR                  ; 0e38 70
-                AS   (IS)                ; 0e39 cc
-                BP   A0e41             ; 0e3a 81 06
-				; Clear explosion flag, and then explode
-                CLR                  ; 0e3c 70
-                LR   (IS),A              ; 0e3d 5c
-                JMP  explode               ; 0e3e 29 0f 6b
-				; Loop back
-A0e41:          
+main.ballLoop:          
+	; o70 = enemy ball size
+	SETISAR 070              ; 0dfd 67 68
+	LI   $30                 ; 0dff 20 30
+	NS   $a                  ; 0e01 fa
+	SR   4                   ; 0e02 14
+	LR   (IS)+,A             ; 0e03 5d
+	
+	; o71 = other enemy parameter (TODO: what does it do)
+	LI   $03                 ; 0e04 20 03
+	NS   $a                  ; 0e06 fa
+	LR   (IS),A              ; 0e07 5c
+
+	PI   handleBall          ; 0e08 28 0a 53
+	PI   ballCollision       ; 0e0b 28 0b 6e
+
+	DS   main.curBall        ; 0e0e 3b
+	LR   A,main.curBall      ; 0e0f 4b
+	CI   [MAX_PLAYERS-1]     ; 0e10 25 01
+	BNC   main.ballLoop      ; 0e12 92 ea
+
+	PI   playerHandler       ; 0e14 28 09 24
+
+	; o70 = player ball size
+	LISU 7                   ; 0e17 67
+	LISL 0                   ; 0e18 68
+	LI   $c0                 ; 0e19 20 c0
+	NS   $a                  ; 0e1b fa
+	SR   4                   ; 0e1c 14
+	SR   1                   ; 0e1d 12
+	SR   1                   ; 0e1e 12
+	LR   (IS)+,A             ; 0e1f 5d
+	
+	; o71 = other enemy parameter (TODO: what does it do)
+	LI   $0c                 ; 0e20 20 0c
+	NS   $a                  ; 0e22 fa
+	SR   1                   ; 0e23 12
+	SR   1                   ; 0e24 12
+	LR   (IS),A              ; 0e25 5c
+	
+	; Handle player 1
+	LI   0                   ; 0e26 20 00
+	LR   $b,A                ; 0e28 5b
+	PI   handleBall          ; 0e29 28 0a 53
+	
+	; Check if were doing 2 player mode
+	SETISAR gameMode         ; 0e2c 67 6d
+	LIS  1                   ; 0e2e 71
+	NS   (IS)                ; 0e2f fc
+	BZ   main.checkExplosion ; 0e30 84 05	
+	; If so handle player 2
+	LR   $b,A                ; 0e32 5b
+	PI   handleBall          ; 0e33 28 0a 53
+
+main.checkExplosion:
+	; Loop back to beginning if explosion flag isn't set
+	SETISAR 072              ; 0e36 67 6a
+	CLR                      ; 0e38 70
+	AS   (IS)                ; 0e39 cc
+	BP   main.end            ; 0e3a 81 06
+	
+	; Clear explosion flag, and then explode
+	CLR                      ; 0e3c 70
+	LR   (IS),A              ; 0e3d 5c
+	JMP  explode             ; 0e3e 29 0f 6b
+
+main.end:          
 	JMP  mainLoop               ; 0e41 29 0d a0
 ; end of main loop
 ;----------------------------
@@ -2116,15 +2143,18 @@ gameOver.label1:
 	SETISAR gameMode         ; 0e67 67 6d
 	LIS  mode.2playerMask    ; 0e69 71
 	NS   (IS)                ; 0e6a fc
-                LI   $80                 ; 0e6b 20 80
-                BZ   A0e78             ; 0e6d 84 0a
-                LISL 1                   ; 0e6f 69
-                LIS  $1                  ; 0e70 71
-                NS   (IS)                ; 0e71 fc
-                LI   $c0                 ; 0e72 20 c0
-                BZ   A0e78             ; 0e74 84 03
-                LI   $40                 ; 0e76 20 40
-A0e78:
+	LI   $80                 ; 0e6b 20 80
+	BZ   gameOver.clearSpiral; 0e6d 84 0a
+
+	LISL 1                   ; 0e6f 69
+	LIS  $1                  ; 0e70 71
+	NS   (IS)                ; 0e71 fc
+	LI   $C0                 ; 0e72 20 c0
+	BZ   gameOver.clearSpiral; 0e74 84 03
+
+	LI   $40                 ; 0e76 20 40
+
+gameOver.clearSpiral:
 	; Set ypos
 	AI   $24                 ; 0e78 24 24
 	LR   $2,A                ; 0e7a 52
@@ -2145,23 +2175,23 @@ A0e78:
 	NS   (IS)                ; 0e8c fc
 	; If so, jump ahead
                 BNZ   A0ec6            ; 0e8d 94 38
-		; One player case
-				; r6/r7 = timer
-                LISU 6                   ; 0e8f 66
-                LISL 6                   ; 0e90 6e
-                LR   A,(IS)+             ; 0e91 4d
-                LR   $6,A                ; 0e92 56
-                LR   A,(IS)              ; 0e93 4c
-                LR   $7,A                ; 0e94 57
+
+	; One player case
+	; r6/r7 = timer
+	SETISAR timer.hiByte     ; 0e8f 66 6e
+	LR   A,(IS)+             ; 0e91 4d
+	LR   $6,A                ; 0e92 56
+	LR   A,(IS)              ; 0e93 4c
+	LR   $7,A                ; 0e94 57
                 ; If timer >= hi_score
 				;  then replace hi_score
-				LISU 5                   ; 0e95 65
-                LISL 4                   ; 0e96 6c
+				SETISAR hiScore.hiByte   ; 0e95 65 6c
                 LR   A,(IS)+             ; 0e97 4d
                 COM                      ; 0e98 18
                 INC                      ; 0e99 1f
                 AS   $6                  ; 0e9a c6
                 BM   A0eb2            ; 0e9b 91 16
+				
                 BNZ   A0ea5            ; 0e9d 94 07
                 LR   A,(IS)              ; 0e9f 4c
                 COM                      ; 0ea0 18
@@ -2186,26 +2216,29 @@ A0eb2:
 	LI   $40                 ; 0eb2 20 40
 	LR   delay.count, A      ; 0eb4 50
 	PI   delay.variable      ; 0eb5 28 09 9a
+	
 	; Read controllers
 	PI   readControllers     ; 0eb8 28 09 10
-				; If controller is pushed, keep gametype
-                LISL 0                   ; 0ebb 68
-                CLR                  ; 0ebc 70
-                AS   (IS)                ; 0ebd cc
-                BM   A0ec3            ; 0ebe 91 04
+	
+	; If controller is pushed, keep gametype
+	LISL 0                   ; 0ebb 68
+	CLR                      ; 0ebc 70
+	AS   (IS)                ; 0ebd cc
+	BM   gameOver.gotoShuffle; 0ebe 91 04
+				
 	JMP  restartGame               ; 0ec0 29 0d 54
 
-				; Shuffle gametype
-A0ec3:          JMP  A0d18               ; 0ec3 29 0d 18
+gameOver.gotoShuffle:
+	JMP  shuffleGameType               ; 0ec3 29 0d 18
 
-		; Two player case
-A0ec6:          ; r6/r7 = timer
-				LISU 6                   ; 0ec6 66
-                LISL 6                   ; 0ec7 6e
-                LR   A,(IS)+             ; 0ec8 4d
-                LR   $6,A                ; 0ec9 56
-                LR   A,(IS)              ; 0eca 4c
-                LR   $7,A                ; 0ecb 57
+	; Two player case
+A0ec6:
+	; r6/r7 = timer
+	SETISAR timer.hiByte     ; 0ec6 66 6e
+	LR   A,(IS)+             ; 0ec8 4d
+	LR   $6,A                ; 0ec9 56
+	LR   A,(IS)              ; 0eca 4c
+	LR   $7,A                ; 0ecb 57
 				
                 LISU 7                   ; 0ecc 67
                 LISL 1                   ; 0ecd 69
@@ -2222,8 +2255,8 @@ A0ec6:          ; r6/r7 = timer
                 LISL 4                   ; 0ed9 6c
                 BR   A0ee4            ; 0eda 90 09
 				
-A0edc:          LISU 5                   ; 0edc 65
-                LISL 5                   ; 0edd 6d
+A0edc:          
+	SETISAR hiScore.loByte         ; 0edc 65 6d
 				; set ypos (or maybe color?)
                 LI   $40                 ; 0ede 20 40
                 LR   $2,A                ; 0ee0 52
@@ -2250,16 +2283,20 @@ A0ef1:          LR   A,(IS)              ; 0ef1 4c
                 LR   (IS)+,A             ; 0ef7 5d
                 PI   drawTimer           ; 0ef8 28 0a 20 ; Score display
 
-; Read controllers
+	; Read controllers
 	PI   readControllers               ; 0efb 28 09 10
-                ; If neither player is touching anything, shuffle gametype
-				LISL 0                   ; 0efe 68
-                CLR                  ; 0eff 70
-                AS   (IS)+               ; 0f00 cd
-                BM   A0ec3            ; 0f01 91 c1
-                CLR                  ; 0f03 70
-                AS   (IS)                ; 0f04 cc
-                BM   A0ec3            ; 0f05 91 bd
+
+	; If neither player is touching anything, shuffle gametype
+	; Player 1
+	SETISARL controller1     ; 0efe 68
+	CLR                      ; 0eff 70
+	AS   (IS)+               ; 0f00 cd
+	BM   gameOver.gotoShuffle; 0f01 91 c1
+
+	; Player 2
+	CLR                      ; 0f03 70
+	AS   (IS)                ; 0f04 cc
+	BM   gameOver.gotoShuffle; 0f05 91 bd
 
 	; Else, just restart the current game
 	JMP  restartGame               ; 0f07 29 0d 54
@@ -2483,10 +2520,10 @@ explode.yloop:
 	BNZ   explode.yloop            ; 0f8d 94 f5
 				
 				; (ISAR) = reg_a, ISAR++, (ISAR) = reg_a
-                LR   A,$a                ; 0f8f 4a
-                LR   (IS)+,A             ; 0f90 5d
-                LR   (IS)+,A             ; 0f91 5d
-				
+                LR   A,$a                ; 0f8f 4a ; is=046
+                LR   (IS)+,A             ; 0f90 5d ; is=046
+                LR   (IS)+,A             ; 0f91 5d ; is=047
+
 	; Clear top bit of game mode (TODO: Find out why)
 	SETISAR gameMode         ; 0f92 67 6d
 	LR   A,(IS)              ; 0f94 4c
