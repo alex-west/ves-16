@@ -726,7 +726,7 @@ saveBall:
 	LR   A,saveBall.ypos     ; 09ac 42
 	LR   (IS),A              ; 09ad 5c
 	
-	; calculater index and bitmask for the bitpacked velocity array
+	; calculate index and bitmask for the bitpacked velocity array
 	; isar = velocity array + curBall/2
 	LR   A, main.curBall     ; 09ae 4b
 	SR   1                   ; 09af 12
@@ -884,8 +884,9 @@ spawn.exit:
 ; end spawn function
 ;----------------------------
 
-;----------------------------				
-; Update score
+;----------------------------
+; draw timer
+; mid-level function
 ; Args
 drawTimer.xpos = 0
 drawTimer.ypos = 2 ; and color
@@ -952,121 +953,144 @@ drawTimer:
 	; Exit
 	LR   P,K                 ; 0a51 09
 	POP                      ; 0a52 1c
+; end of draw timer function
 ;----------------------------
 
-; Do thing
+;----------------------------
+; Ball handler
 ; Args
 ; 070 = ball sizes
-; velocity = r3
+; 071 = ball speed
+; velocity = r3 ?
 
-; reg_b (r11 or o13) - Index of thing to finangle
 handleBall:
 	LR   K,P                 ; 0a53 08
-	; load x pos of thing
+
+	; load ball xpos
 	LI   balls.xpos          ; 0a54 20 10
 	AS   main.curBall        ; 0a56 cb
 	LR   IS,A                ; 0a57 0b
 	LR   A,(IS)              ; 0a58 4c
 	LR   draw.xpos, A        ; 0a59 51
-	; load y pos of thing from $1b + index
+
+	; load ball ypos
 	LR   A,IS                ; 0a5a 0a
 	AI   balls.arraySize     ; 0a5b 24 0b
 	LR   IS,A                ; 0a5d 0b
 	LR   A,(IS)              ; 0a5e 4c
-                LR   $9,A                ; 0a5f 59
-                NI   $3f                 ; 0a60 21 3f
+
+	; store temp y velocity in r9
+	LR   $9,A                ; 0a5f 59
+
+	; Mask out the color
+	NI   %00111111           ; 0a60 21 3f
 	LR   draw.ypos, A        ; 0a62 52
-				; Load size of thing from o70
-                LISU 7                   ; 0a63 67
-                LISL 0                   ; 0a64 68
+
+	; Load ball size
+	SETISAR 070              ; 0a63 67 68
 	LR   A,(IS)              ; 0a65 4c
 	LR   draw.width, A       ; 0a66 54
 	LR   draw.height, A      ; 0a67 55
-	; Color?
-	LI   draw.drawRect        ; 0a68 20 80
+
+	; Set parameter
+	LI   draw.drawRect       ; 0a68 20 80
 	LR   draw.glyph, A       ; 0a6a 50
-	; Undraw player
+
+	; Undraw ball
 	PI   drawBox               ; 0a6b 28 08 62
-				
-				; reload ypos
-                LR   A,$9                ; 0a6e 49
+
+	; reload ypos from temp
+	LR   A,$9                ; 0a6e 49
 	LR   draw.ypos, A        ; 0a6f 52
 
-	; get bitpacked velocity ?
+	; get bitpacked velocity
 	; ISAR = o46 + index/2
 	LR   A, main.curBall     ; 0a70 4b
 	SR   1                   ; 0a71 12
 	AI   balls.velocity      ; 0a72 24 26
 	LR   IS,A                ; 0a74 0b
 				
-				; if (index is odd)
-				;  r6 = $0F
-				; else
-				;  r6 = $F0
-                LIS  $1                  ; 0a75 71
-                NS   main.curBall        ; 0a76 fb
-                LIS  $f                  ; 0a77 7f
-                BNZ   A0a7b            ; 0a78 94 02
-                COM                      ; 0a7a 18
-A0a7b:          
-				LR   $6,A                ; 0a7b 56
-				; store one nybble in r0
-                COM                      ; 0a7c 18
-                NS   (IS)                ; 0a7d fc
-                LR   $0,A                ; 0a7e 50
-				; store the other nybble in r3
-                LR   A,$6                ; 0a7f 46
-                NS   (IS)                ; 0a80 fc
-                LR   $3,A                ; 0a81 53
-				; if the desired nybble is the upper nybble
-				; shift it right 4 and then store in r3
-                SR   4                   ; 0a82 14
-                BZ   A0a86             ; 0a83 84 02
-                LR   $3,A                ; 0a85 53
-A0a86:          
-				; if(xpos > 0)
-				;  xpos += xvel
-				; else
-				;  xpos -= xvel
-				CLR                  ; 0a86 70
-                AS   draw.xpos           ; 0a87 c1
-                LR   J,W                 ; 0a88 1e
-                ; a = r3/4
-				LR   A,$3                ; 0a89 43
-                SR   1                   ; 0a8a 12
-                SR   1                   ; 0a8b 12
-                LR   W,J                 ; 0a8c 1d
-                ; if r1 was positive, branch ahead
-				BP   A0a91             ; 0a8d 81 03
-				; else, take the 2's complement
-                COM                      ; 0a8f 18
-                INC                      ; 0a90 1f
-A0a91:          ; r1 = r1 + a
-				AS   $1                  ; 0a91 c1
-                LR   $1,A                ; 0a92 51
-				
-				; if(ypos > 0)
-				;  ypos += yvel
-				; else
-				;  ypos -= yvel
-                CLR                  ; 0a93 70
-                AS   draw.ypos           ; 0a94 c2
-                LR   J,W                 ; 0a95 1e
-                LIS  $3                  ; 0a96 73
-                NS   $3                  ; 0a97 f3
-                LR   W,J                 ; 0a98 1d
-                BP   A0a9d             ; 0a99 81 03
-                COM                      ; 0a9b 18
-                INC                      ; 0a9c 1f
-A0a9d:          
-				AS   $2                  ; 0a9d c2
-                LR   $2,A                ; 0a9e 52
-				
-; Ball/Wall collision detection
-	; if (reg_b <= 1)
-	;  r4 = o61
+	; if (index is odd)
+	;  tempMask = $0F
 	; else
-	;  r4 = o60
+	;  tempMask = $F0
+	LIS  $1                  ; 0a75 71
+	NS   main.curBall        ; 0a76 fb
+	LIS  %00001111           ; 0a77 7f
+	BNZ   A0a7b              ; 0a78 94 02
+	COM                      ; 0a7a 18
+A0a7b:          
+	LR   $6,A                ; 0a7b 56
+	
+	; store the other nybble of the velocity byte in r0
+	COM                      ; 0a7c 18
+	NS   (IS)                ; 0a7d fc
+	LR   $0,A                ; 0a7e 50
+	
+	; store the nybble we're interested in in r6
+	LR   A,$6                ; 0a7f 46
+	NS   (IS)                ; 0a80 fc
+	LR   $3,A                ; 0a81 53
+	; shift right by 4 bits in case it's the upper nybble
+	SR   4                   ; 0a82 14
+	BZ   A0a86               ; 0a83 84 02
+	LR   $3,A                ; 0a85 53
+
+A0a86:
+	; if(the highest bit of xpos is 0)
+	;  xpos += xvel
+	; else
+	;  xpos -= xvel
+	CLR                      ; 0a86 70
+	AS   draw.xpos           ; 0a87 c1
+	LR   J,W                 ; 0a88 1e
+	
+	; get the xspeed from r3
+	LR   A,$3                ; 0a89 43
+	SR   1                   ; 0a8a 12
+	SR   1                   ; 0a8b 12
+	
+	; if xpos was positive, branch ahead
+	LR   W,J                 ; 0a8c 1d
+	BP   A0a91               ; 0a8d 81 03
+	
+	; else, negate the accumulator
+	COM                      ; 0a8f 18
+	INC                      ; 0a90 1f
+A0a91:
+	; xpos += velocity (fron the accumulator)
+	AS   draw.xpos           ; 0a91 c1
+	LR   draw.xpos,A         ; 0a92 51
+
+	; if(the highest bit of ypos is 0)
+	;  ypos += yvel
+	; else
+	;  ypos -= yvel
+	CLR                  ; 0a93 70
+	AS   draw.ypos           ; 0a94 c2
+	LR   J,W                 ; 0a95 1e
+	
+	; get the yspeed from r3
+	LIS  %00000011           ; 0a96 73
+	NS   $3                  ; 0a97 f3
+	
+	; if ypos was positive, branch ahead
+	LR   W,J                 ; 0a98 1d
+	BP   A0a9d               ; 0a99 81 03
+	
+	; else, negate the accumulator
+	COM                      ; 0a9b 18
+	INC                      ; 0a9c 1f
+A0a9d:
+	; ypos += velocity (from the accumulator)
+	AS   draw.ypos           ; 0a9d c2
+	LR   draw.ypos,A         ; 0a9e 52
+
+; Ball/Wall collision detection
+	; if (curBall <= [MAX_PLAYERS-1])
+	;  tempRightBound = bounds.rightEnemy
+	; else
+	;  tempRightBound = bounds.rightPlayer
 	SETISAR bounds.rightEnemy; 0a9f 66 68
 	LR   A, main.curBall     ; 0aa1 4b
 	CI   [MAX_PLAYERS-1]     ; 0aa2 25 01
@@ -1075,16 +1099,19 @@ A0a9d:
 	
 A0aa7:          
 	LR   A,(IS)              ; 0aa7 4c
-                LR   $4,A                ; 0aa8 54
-				; r5 = (previous isar reg + 3)
-                LR   A,IS                ; 0aa9 0a
-                AI   $03                 ; 0aaa 24 03
-                LR   IS,A                ; 0aac 0b
-                LR   A,(IS)              ; 0aad 4c
-                LR   $5,A                ; 0aae 55
-                ; Clear r0
-				CLR                  ; 0aaf 70
-                LR   $0,A                ; 0ab0 50
+	LR   $4,A                ; 0aa8 54
+	
+	; tempLowerBound = (previous isar reg + 3)
+	LR   A,IS                ; 0aa9 0a
+	AI   3                   ; 0aaa 24 03
+	LR   IS,A                ; 0aac 0b
+	LR   A,(IS)              ; 0aad 4c
+	LR   $5,A                ; 0aae 55
+
+	; Clear r0
+	CLR                      ; 0aaf 70
+	LR   $0,A                ; 0ab0 50
+
 				; if r1 is positive, branch ahead
                 AS   $1                  ; 0ab1 c1
                 BM   A0acb            ; 0ab2 91 18
@@ -1097,11 +1124,12 @@ A0aa7:
                 AI   $80                 ; 0aba 24 80
                 LR   $1,A                ; 0abc 51
                 LI   $40                 ; 0abd 20 40
-                LR   $3,A                ; 0abf 53
-                PI   playSound               ; 0ac0 28 0c c8
-				
-A0ac3:          LISU 7                   ; 0ac3 67
-                LISL 1                   ; 0ac4 69
+				LR   $3,A                ; 0abf 53
+	PI   playSound           ; 0ac0 28 0c c8
+
+A0ac3:
+	; r0 = speed
+	SETISAR 071              ; 0ac3 67 69
                 LR   A,(IS)              ; 0ac5 4c
                 SL   1                   ; 0ac6 13
                 SL   1                   ; 0ac7 13
@@ -1120,46 +1148,53 @@ A0acb:          LR   A,$1                ; 0acb 41
                 LR   $1,A                ; 0ad6 51  ; draw.xpos ?
                 LI   $40                 ; 0ad7 20 40
                 LR   $3,A                ; 0ad9 53
-                PI   playSound               ; 0ada 28 0c c8
-                BR   A0ac3            ; 0add 90 e5
+                PI   playSound           ; 0ada 28 0c c8
+                BR   A0ac3               ; 0add 90 e5
 
-A0adf:          CLR                  ; 0adf 70
-                AS   $2                  ; 0ae0 c2
-                BM   A0afb            ; 0ae1 91 19
+A0adf:          CLR                      ; 0adf 70
+                AS   draw.ypos           ; 0ae0 c2
+                BM   A0afb               ; 0ae1 91 19
                 NI   $3f                 ; 0ae3 21 3f
                 AS   $5                  ; 0ae5 c5
-                BNC   A0b0e            ; 0ae6 92 27
+                BNC   A0b0e              ; 0ae6 92 27
 				
                 LR   A,$5                ; 0ae8 45
                 COM                      ; 0ae9 18
                 INC                      ; 0aea 1f
                 AI   $80                 ; 0aeb 24 80
-                LR   $2,A                ; 0aed 52
-                LI   $40                 ; 0aee 20 40
-                LR   $3,A                ; 0af0 53
-                PI   playSound               ; 0af1 28 0c c8
+                LR   draw.ypos,A         ; 0aed 52
+	
+	; Play sound for hitting wall
+	LI   $40                 ; 0aee 20 40
+	LR   playSound.sound,A   ; 0af0 53
+	PI   playSound           ; 0af1 28 0c c8
 				
-A0af4:          LISU 7                   ; 0af4 67
-                LISL 1                   ; 0af5 69
-                LR   A,(IS)              ; 0af6 4c
-                AS   $0                  ; 0af7 c0
-                LR   $0,A                ; 0af8 50
+A0af4:
+	; r0 = speed
+	SETISAR 071              ; 0af4 67 69
+	LR   A,(IS)              ; 0af6 4c
+	AS   $0                  ; 0af7 c0
+	LR   $0,A                ; 0af8 50
                 BR   A0b0e            ; 0af9 90 14
 				
-A0afb:          LISU 6                   ; 0afb 66
+A0afb:
+	SETISARU bounds.top      ; 0afb 66 ; Whyyyyy?
                 NI   $3f                 ; 0afc 21 3f
                 COM                      ; 0afe 18
                 INC                      ; 0aff 1f
-                LISL 5                   ; 0b00 6d
+	SETISARL bounds.top      ; 0b00 6d
                 AS   (IS)                ; 0b01 cc
                 BNC   A0b0e            ; 0b02 92 0b
 				
                 LR   A,(IS)              ; 0b04 4c
                 LR   $2,A                ; 0b05 52
                 LI   $40                 ; 0b06 20 40
-                LR   $3,A                ; 0b08 53
-                PI   playSound               ; 0b09 28 0c c8
-                BR   A0af4            ; 0b0c 90 e7
+
+	; Play sound for hitting wall
+	LR   playSound.sound,A   ; 0b08 53
+	PI   playSound           ; 0b09 28 0c c8
+	BR   A0af4               ; 0b0c 90 e7
+
 			; ?--
 A0b0e:          LR   A,$0                ; 0b0e 40
                 SL   4                   ; 0b0f 15
@@ -1212,39 +1247,53 @@ A0b35:          LI   $cc                 ; 0b35 20 cc
 A0b45:          LR   A,$5                ; 0b45 45
                 AS   $4                  ; 0b46 c4
                 LR   $0,A                ; 0b47 50
-                PI   saveBall               ; 0b48 28 09 a2
-				
-                DCI  ballColors          ; 0b4b 2a 08 50
-                LR   A,$b                ; 0b4e 4b
-                CI   [MAX_PLAYERS-1]     ; 0b4f 25 01
-                LIS  $2                  ; 0b51 72
-                BNC   A0b55            ; 0b52 92 02
-				
-                LR   A,$b                ; 0b54 4b
-A0b55:          ADC                      ; 0b55 8e
-                LR   A, draw.ypos        ; 0b56 42
-                NI   $7f                 ; 0b57 21 7f ; Should be $3F ?
-                OM                       ; 0b59 8b
-                LR   draw.ypos, A        ; 0b5a 52
-                LI   draw.drawRect        ; 0b5b 20 80
-                LR   draw.glyph, A       ; 0b5d 50
-                LISU 7                   ; 0b5e 67
-                LISL 0                   ; 0b5f 68
-                LR   A,(IS)              ; 0b60 4c
-                LR   draw.width, A       ; 0b61 54
-                LR   draw.height, A      ; 0b62 55
-                LISU 7                   ; 0b63 67
-                LISL 2                   ; 0b64 6a
-                CLR                  ; 0b65 70
-                AS   (IS)                ; 0b66 cc
-                BM   A0b6c            ; 0b67 91 04
-				
-				; Redraw thing
-                PI   drawBox               ; 0b69 28 08 62
-				; Return
-ballCollision.return: ; The next function uses this to return (!?)
-A0b6c:          LR   P,K                 ; 0b6c 09
-                POP                      ; 0b6d 1c
+
+	; It is finished... we can save the results
+	PI   saveBall               ; 0b48 28 09 a2
+	
+	; Redraw ball
+	DCI  ballColors          ; 0b4b 2a 08 50
+	LR   A,main.curBall      ; 0b4e 4b
+	CI   [MAX_PLAYERS-1]     ; 0b4f 25 01
+	LIS  $2                  ; 0b51 72
+	BNC   A0b55              ; 0b52 92 02
+	LR   A,main.curBall      ; 0b54 4b
+A0b55:
+	ADC                      ; 0b55 8e
+	LR   A, draw.ypos        ; 0b56 42
+
+	; Mask out the direction
+	NI   %01111111;$7f                 ; 0b57 21 7f
+
+	; OR in the color
+	OM                       ; 0b59 8b
+	LR   draw.ypos, A        ; 0b5a 52
+
+	; Set drawing parameters
+	LI   draw.drawRect       ; 0b5b 20 80
+	LR   draw.glyph, A       ; 0b5d 50
+
+	; set ball width/height
+	SETISAR 070              ; 0b5e 67 68
+	LR   A,(IS)              ; 0b60 4c
+	LR   draw.width, A       ; 0b61 54
+	LR   draw.height, A      ; 0b62 55
+
+	; Do not redraw if explosion flag is set (TODO: Verify)
+	SETISAR explosionFlag    ; 0b63 67 6a
+	CLR                      ; 0b65 70
+	AS   (IS)                ; 0b66 cc
+	BM   handleBall.return   ; 0b67 91 04
+	
+	; Redraw ball
+	PI   drawBox               ; 0b69 28 08 62
+
+ballCollision.return: ; The next function uses this to return as well
+handleBall.return:
+	LR   P,K                 ; 0b6c 09
+	POP                      ; 0b6d 1c
+;
+;----------------------------
 
 ; Collision detection ?
 ; Args
@@ -1671,7 +1720,7 @@ flash.exit:
 playSound.sound = 3
 
 playSound:      
-	; if(curBall < MAX_PLAYERS)
+	; if(curBall >= MAX_PLAYERS)
 	;  play the sound
 	; return
 	LR   A, main.curBall     ; 0cc8 4b
@@ -1827,7 +1876,7 @@ shuffleGameTypeReroll:
 	; Each array element would have been 2 bytes
 	DCI  A0848               ; 0d3c 2a 08 48
 	LIS  $3                  ; 0d3f 73
-	NS   $a                  ; 0d40 fa
+	NS   main.gameSettings   ; 0d40 fa
 	SL   1                   ; 0d41 13
 	ADC                      ; 0d42 8e
 	
