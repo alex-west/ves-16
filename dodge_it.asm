@@ -964,6 +964,8 @@ drawTimer:
 ; 070 = ball sizes
 ; 071 = ball speed
 ; velocity = r3 ?
+tempBallSize = 070
+tempBallSpeed = 071
 
 handleBall:
 	LR   K,P                 ; 0a53 08
@@ -984,12 +986,12 @@ handleBall:
 	; store temp y velocity in r9
 	LR   $9,A                ; 0a5f 59
 
-	; Mask out the color
+	; Mask out the color bits
 	NI   %00111111           ; 0a60 21 3f
 	LR   draw.ypos, A        ; 0a62 52
 
 	; Load ball size
-	SETISAR 070              ; 0a63 67 68
+	SETISAR tempBallSize     ; 0a63 67 68
 	LR   A,(IS)              ; 0a65 4c
 	LR   draw.width, A       ; 0a66 54
 	LR   draw.height, A      ; 0a67 55
@@ -1025,6 +1027,7 @@ A0a7b:
 	LR   $6,A                ; 0a7b 56
 	
 	; store the other nybble of the velocity byte in r0
+	; I don't think this is ever used
 	COM                      ; 0a7c 18
 	NS   (IS)                ; 0a7d fc
 	LR   $0,A                ; 0a7e 50
@@ -1089,6 +1092,10 @@ A0a9d:
 	LR   draw.ypos,A         ; 0a9e 52
 
 ; Ball/Wall collision detection
+tempRightBound = $4
+tempLowerBound = $5
+; tempVelocity = $0
+
 	; if (curBall <= [MAX_PLAYERS-1])
 	;  tempRightBound = bounds.rightEnemy
 	; else
@@ -1100,70 +1107,92 @@ A0a9d:
 	SETISARL bounds.rightPlayer; 0aa6 69
 A0aa7:          
 	LR   A,(IS)              ; 0aa7 4c
-	LR   $4,A                ; 0aa8 54
+	LR   tempRightBound,A    ; 0aa8 54
 	
 	; tempLowerBound = (previous isar reg + 3)
 	LR   A,IS                ; 0aa9 0a
 	AI   3                   ; 0aaa 24 03
 	LR   IS,A                ; 0aac 0b
 	LR   A,(IS)              ; 0aad 4c
-	LR   $5,A                ; 0aae 55
+	LR   tempLowerBound,A    ; 0aae 55
 
 	; Clear r0
 	CLR                      ; 0aaf 70
 	LR   $0,A                ; 0ab0 50
-
-				; if r1 is positive, branch ahead
-                AS   $1                  ; 0ab1 c1
-                BM   A0acb            ; 0ab2 91 18
-                AS   $4                  ; 0ab4 c4
-                BNC   A0adf            ; 0ab5 92 29
-				
-                LR   A,$4                ; 0ab7 44
-                COM                      ; 0ab8 18
-                INC                      ; 0ab9 1f
-                AI   $80                 ; 0aba 24 80
-                LR   $1,A                ; 0abc 51
-                LI   $40                 ; 0abd 20 40
-				LR   $3,A                ; 0abf 53
+	
+	; if bit 7 of velocity is set (meaning the ball is going left), branch ahead
+	AS   draw.xpos           ; 0ab1 c1
+	BM   A0acb               ; 0ab2 91 18
+	; if the two add and don't carry, then branch ahead
+	AS   tempRightBound      ; 0ab4 c4
+	BNC   A0adf              ; 0ab5 92 29
+	
+; We have collided with the right wall
+	; clamp position to right wall and set direction to left
+	LR   A,tempRightBound    ; 0ab7 44
+	COM                      ; 0ab8 18
+	INC                      ; 0ab9 1f
+	AI   $80                 ; 0aba 24 80
+	LR   draw.xpos,A         ; 0abc 51
+	
+	; Play sound for hitting wall
+	LI   $40                 ; 0abd 20 40
+	LR   playSound.sound,A   ; 0abf 53
 	PI   playSound           ; 0ac0 28 0c c8
 
 A0ac3:
-	; r0 = speed
-	SETISAR 071              ; 0ac3 67 69
-                LR   A,(IS)              ; 0ac5 4c
-                SL   1                   ; 0ac6 13
-                SL   1                   ; 0ac7 13
-                LR   $0,A                ; 0ac8 50
-                BR   A0adf               ; 0ac9 90 15
+	; r0 = speed << 2
+	; setting x speed?
+	SETISAR tempBallSpeed    ; 0ac3 67 69
+	LR   A,(IS)              ; 0ac5 4c
+	SL   1                   ; 0ac6 13
+	SL   1                   ; 0ac7 13
+	LR   $0,A                ; 0ac8 50
+	BR   A0adf               ; 0ac9 90 15
 
-A0acb:          LR   A,$1                ; 0acb 41
-                NI   $7f                 ; 0acc 21 7f
-                COM                      ; 0ace 18
-                INC                      ; 0acf 1f
-                SETISAR bounds.left      ; 0ad0 66 6a
-                AS   (IS)                ; 0ad2 cc
-                BNC   A0adf              ; 0ad3 92 0b
-				
-                LR   A,(IS)              ; 0ad5 4c
-                LR   $1,A                ; 0ad6 51  ; draw.xpos ?
-                LI   $40                 ; 0ad7 20 40
-                LR   $3,A                ; 0ad9 53
-                PI   playSound           ; 0ada 28 0c c8
-                BR   A0ac3               ; 0add 90 e5
-
-A0adf:          CLR                      ; 0adf 70
-                AS   draw.ypos           ; 0ae0 c2
-                BM   A0afb               ; 0ae1 91 19
-                NI   $3f                 ; 0ae3 21 3f
-                AS   $5                  ; 0ae5 c5
-                BNC   A0b0e              ; 0ae6 92 27
-				
-                LR   A,$5                ; 0ae8 45
-                COM                      ; 0ae9 18
-                INC                      ; 0aea 1f
-                AI   $80                 ; 0aeb 24 80
-                LR   draw.ypos,A         ; 0aed 52
+A0acb:
+	; mask out the directional bit
+	LR   A,draw.xpos         ; 0acb 41
+	NI   %01111111           ; 0acc 21 7f
+	
+	; branch ahead if(leftBound < xpos)
+	COM                      ; 0ace 18
+	INC                      ; 0acf 1f
+	SETISAR bounds.left      ; 0ad0 66 6a
+	AS   (IS)                ; 0ad2 cc
+	BNC   A0adf              ; 0ad3 92 0b
+	
+	; clamp position to left wall and set direction to the right
+	LR   A,(IS)              ; 0ad5 4c
+	LR   draw.xpos,A         ; 0ad6 51
+	
+	; Play sound for hitting wall
+	LI   $40                 ; 0ad7 20 40
+	LR   playSound.sound,A   ; 0ad9 53
+	PI   playSound           ; 0ada 28 0c c8
+	
+	BR   A0ac3               ; 0add 90 e5
+;-----
+	
+; 
+A0adf:
+	CLR                      ; 0adf 70
+	; if bit 7 of the velocity is set (meaning it's going up) branch ahead
+	AS   draw.ypos           ; 0ae0 c2
+	BM   A0afb               ; 0ae1 91 19
+	; apply bitmask
+	NI   %00111111           ; 0ae3 21 3f
+	; branch if ypos + lowerBound < 256 or 0 or whatever
+	AS   tempLowerBound      ; 0ae5 c5
+	BNC   A0b0e              ; 0ae6 92 27
+	
+; We have collided with the lower wall
+	; Clamp position to the lower wall and set the direction to up
+	LR   A,tempLowerBound    ; 0ae8 45
+	COM                      ; 0ae9 18
+	INC                      ; 0aea 1f
+	AI   $80                 ; 0aeb 24 80
+	LR   draw.ypos,A         ; 0aed 52
 	
 	; Play sound for hitting wall
 	LI   $40                 ; 0aee 20 40
@@ -1171,32 +1200,39 @@ A0adf:          CLR                      ; 0adf 70
 	PI   playSound           ; 0af1 28 0c c8
 				
 A0af4:
-	; r0 = speed
+	; r0 += speed
+	; setting the y speed?
 	SETISAR 071              ; 0af4 67 69
 	LR   A,(IS)              ; 0af6 4c
 	AS   $0                  ; 0af7 c0
 	LR   $0,A                ; 0af8 50
-                BR   A0b0e            ; 0af9 90 14
-				
-A0afb:
-	SETISARU bounds.top      ; 0afb 66 ; Whyyyyy?
-                NI   $3f                 ; 0afc 21 3f
-                COM                      ; 0afe 18
-                INC                      ; 0aff 1f
-	SETISARL bounds.top      ; 0b00 6d
-                AS   (IS)                ; 0b01 cc
-                BNC   A0b0e            ; 0b02 92 0b
-				
-                LR   A,(IS)              ; 0b04 4c
-                LR   $2,A                ; 0b05 52
-                LI   $40                 ; 0b06 20 40
+	BR   A0b0e            ; 0af9 90 14
 
-	; Play sound for hitting wall
+A0afb:
+	SETISARU bounds.top      ; 0afb 66 ; Whyyyyy? Why is this split like this?
+	; Apply bitmask to velocity
+	NI   %00111111           ; 0afc 21 3f
+	; branch ahead if(topBound < ypos)
+	COM                      ; 0afe 18
+	INC                      ; 0aff 1f
+	SETISARL bounds.top      ; 0b00 6d
+	AS   (IS)                ; 0b01 cc
+	BNC   A0b0e            ; 0b02 92 0b
+	
+; We have collided with the top wall
+	; Clamp position to top wall and set direction downwards
+	LR   A,(IS)              ; 0b04 4c
+	LR   draw.ypos,A         ; 0b05 52
+
+	; Play sound for hitting wall	
+	LI   $40                 ; 0b06 20 40
 	LR   playSound.sound,A   ; 0b08 53
 	PI   playSound           ; 0b09 28 0c c8
+	
 	BR   A0af4               ; 0b0c 90 e7
+;-----
 
-			; ?--
+	; Applying velocity changes?
 A0b0e:          LR   A,$0                ; 0b0e 40
                 SL   4                   ; 0b0f 15
                 AS   $0                  ; 0b10 c0
