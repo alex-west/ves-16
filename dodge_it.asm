@@ -544,111 +544,141 @@ readControllers.exit:
 tempVelocity = $0
 tempXpos = $1
 tempYpos = $2
-;  
+; locals
+tempLoopCount = $8
+
 playerHandler:
 	LR   K,P                 ; 0924 08
 	PI   readControllers               ; 0925 28 09 10
-	; Check if LSB of RNG is set
+	
+	; Randomize which player is processed first
+	; if LSB of RNG is set
+	;  process player 1 first
+	; else
+	;  process player 2 first
 	SETISAR RNG.seedLo      ; 0928 67 6f
-                LIS  $1                  ; 092a 71
-                NS   (IS)                ; 092b fc
-                CLR                  ; 092c 70
-				; skip ahead if it is not set
-                BNZ   A0930            ; 092d 94 02
-				
-                LIS  $1                  ; 092f 71
-A0930:          LR   main.curBall,A      ; 0930 5b
-				; r8 = 2
-                LIS  $2                  ; 0931 72
-                LR   $8,A                ; 0932 58
-				; r0 = 0
-A0933:          CLR                  ; 0933 70
-                LR   $0,A                ; 0934 50
+	LIS  %00000001           ; 092a 71
+	NS   (IS)                ; 092b fc
+	CLR                  ; 092c 70
+	BNZ   playerHandler.setPlayer            ; 092d 94 02
+	LIS  1                  ; 092f 71
+playerHandler.setPlayer:
+	LR   main.curBall,A      ; 0930 5b
 
-	; r1 = xpos[curBall]
+	; r8 = 2 ; loop count
+	LIS  MAX_PLAYERS         ; 0931 72
+	LR   tempLoopCount,A     ; 0932 58
+
+	; start loop
+playerHandler.mainLoop:
+	; clear speed (so we don't move if nothing is pressed)
+	CLR                      ; 0933 70
+	LR   tempVelocity,A      ; 0934 50
+
+	; tempXpos = xpos[curBall]
 	LR   A,main.curBall      ; 0935 4b
 	AI   balls.xpos          ; 0936 24 10
 	LR   IS,A                ; 0938 0b
 	LR   A,(IS)              ; 0939 4c
 	LR   tempXpos,A          ; 093a 51
 
-	; r2 = ypos[curBall]
+	; tempypos = ypos[curBall]
 	LR   A,IS                ; 093b 0a
 	AI   balls.arraySize     ; 093c 24 0b
 	LR   IS,A                ; 093e 0b
 	LR   A,(IS)              ; 093f 4c
 	LR   $2,A                ; 0940 52
-				; if((r11 & 0x01) == 0)
-				;  ISAR = 70 (controller 1 ?)
-				; else
-				;  ISAR = 71 (controller 2 ?)
-                SETISARU controller1     ; 0941 67
-                LIS  $1                  ; 0942 71
-                NS   main.curBall        ; 0943 fb
-                SETISARL controller2     ; 0944 69
-                BNZ   A0948            ; 0945 94 02
-                SETISARL controller1     ; 0947 68
 
-				; Check if right is pressed
-A0948:          LIS  CONTROL_RIGHT       ; 0948 71
-                NS   (IS)                ; 0949 fc
-                BNZ   A0951              ; 094a 94 06
-				LR   A,tempXpos          ; 094c 41
-                NI   $7f                 ; 094d 21 7f
-                BR   A0958               ; 094f 90 08
+	; set ISAR to match the current player's controller
+	SETISARU controller1     ; 0941 67
+	LIS  %00000001           ; 0942 71
+	NS   main.curBall        ; 0943 fb
+	SETISARL controller2     ; 0944 69
+	BNZ   playerHandler.checkRight ; 0945 94 02
+	SETISARL controller1     ; 0947 68
 
-				; Check if a different direction is pressed
-A0951:          LIS  CONTROL_LEFT        ; 0951 72
-                NS   (IS)                ; 0952 fc
-                BNZ   A095c            ; 0953 94 08
-                LR   A,tempXpos          ; 0955 41
-                OI   $80                 ; 0956 22 80
-				
-A0958:          LR   $1,A                ; 0958 51
-				LIS  $c                  ; 0959 7c
-                NS   $a                  ; 095a fa
-                LR   $0,A                ; 095b 50
-				
-				; Check if a direction is pressed
-A095c:          LIS  CONTROL_BACKWARD    ; 095c 74
-                NS   (IS)                ; 095d fc
-                BNZ   A0965              ; 095e 94 06
-                LR   A,tempYpos          ; 0960 42
-                NI   $3f                 ; 0961 21 3f
-                BR   A096c               ; 0963 90 08
-				
-				; Check if a direction is pressed
-A0965:          LIS  CONTROL_FORWARD     ; 0965 78
-                NS   (IS)                ; 0966 fc
-                BNZ   A0973              ; 0967 94 0b
-                LR   A,tempYpos          ; 0969 42
-                OI   $80                 ; 096a 22 80
-				
-A096c:          LR   $2,A                ; 096c 52
-                LIS  $c                  ; 096d 7c
-                NS   $a                  ; 096e fa
-                SR   1                   ; 096f 12
-                SR   1                   ; 0970 12
-                AS   $0                  ; 0971 c0
-                LR   $0,A                ; 0972 50
+	; Check if right is pressed
+playerHandler.checkRight:
+	LIS  CONTROL_RIGHT       ; 0948 71
+	NS   (IS)                ; 0949 fc
+	BNZ  playerHandler.checkLeft ; 094a 94 06
+	; If so, set x direction to right
+	LR   A,tempXpos          ; 094c 41
+	NI   %01111111           ; 094d 21 7f
+	BR   playerHandler.setXspeed; 094f 90 08
 
-A0973:          LR   A,$0                ; 0973 40
-                SL   4                   ; 0974 15
-                AS   $0                  ; 0975 c0
-                LR   $0,A                ; 0976 50
-                PI   saveBall            ; 0977 28 09 a2
-                LIS  $1                  ; 097a 71
-                NS   $b                  ; 097b fb
-                CLR                  ; 097c 70
-                BNZ   A0980            ; 097d 94 02
-                LIS  $1                  ; 097f 71
+	; Check if left is pressed
+playerHandler.checkLeft:
+	LIS  CONTROL_LEFT        ; 0951 72
+	NS   (IS)                ; 0952 fc
+	BNZ  playerHandler.checkDown ; 0953 94 08
+	; If so, set x direction to left
+	LR   A,tempXpos          ; 0955 41
+	OI   %10000000           ; 0956 22 80
+	
+playerHandler.setXspeed:
+	LR   tempXpos,A          ; 0958 51
+	; set x speed
+	LIS  playerSpeedMask     ; 0959 7c
+	NS   main.gameSettings   ; 095a fa
+	LR   tempVelocity,A      ; 095b 50
 
-A0980:          LR   $b,A                ; 0980 5b
-                DS   $8                  ; 0981 38
-                BNZ   A0933            ; 0982 94 b0
+	; Check if down is pressed
+playerHandler.checkDown:
+	LIS  CONTROL_BACKWARD    ; 095c 74
+	NS   (IS)                ; 095d fc
+	BNZ   playerHandler.checkUp ; 095e 94 06
+	; If so, set y direction to down
+	LR   A,tempYpos          ; 0960 42
+	NI   %00111111           ; 0961 21 3f
+	BR   playerHandler.setYspeed ; 0963 90 08
+	
+	; Check if up is pressed
+playerHandler.checkUp:
+	LIS  CONTROL_FORWARD     ; 0965 78
+	NS   (IS)                ; 0966 fc
+	BNZ   playerHandler.prepSaveBall ; 0967 94 0b
+	; If so, set y direction to up
+	LR   A,tempYpos          ; 0969 42
+	OI   %10000000           ; 096a 22 80
+
+playerHandler.setYspeed:
+	LR   tempYpos,A          ; 096c 52
+	; set y speed
+	LIS  playerSpeedMask     ; 096d 7c
+	NS   main.gameSettings   ; 096e fa
+	SR   1                   ; 096f 12
+	SR   1                   ; 0970 12
+	AS   tempVelocity        ; 0971 c0
+	LR   tempVelocity,A      ; 0972 50
+
+playerHandler.prepSaveBall:
+	; copy the velocity to the other nybble
+	; (saveBall will figure out which one it needs)
+	LR   A,tempVelocity      ; 0973 40
+	SL   4                   ; 0974 15
+	AS   tempVelocity        ; 0975 c0
+	LR   tempVelocity,A      ; 0976 50
+	PI   saveBall            ; 0977 28 09 a2
+	
+	; set curBall to the other player's ball
+	; (why not xor the register with a constant 1?)
+	LIS  $1                  ; 097a 71
+	NS   main.curBall        ; 097b fb
+	CLR                      ; 097c 70
+	BNZ   playerHandler.setNextPlayer ; 097d 94 02
+	LIS  $1                  ; 097f 71
+playerHandler.setNextPlayer:
+	LR   main.curBall,A      ; 0980 5b
+	
+	; decrement the loop counter
+	DS   tempLoopCount       ; 0981 38
+	BNZ   playerHandler.mainLoop ; 0982 94 b0
+
 	LR   P,K                 ; 0984 09
 	POP                      ; 0985 1c
-; --?
+; end player handler function
+;----------------------------
 
 ;----------------------------
 ; Variable delay function
@@ -1232,61 +1262,96 @@ A0afb:
 	BR   A0af4               ; 0b0c 90 e7
 ;-----
 
-	; Applying velocity changes?
-A0b0e:          LR   A,$0                ; 0b0e 40
-                SL   4                   ; 0b0f 15
-                AS   $0                  ; 0b10 c0
-                LR   $0,A                ; 0b11 50
-                LR   A,$b                ; 0b12 4b
-                SR   1                   ; 0b13 12
-                AI   $26                 ; 0b14 24 26
-                LR   IS,A                ; 0b16 0b
-                LIS  $1                  ; 0b17 71
-                NS   $b                  ; 0b18 fb
-                LIS  $f                  ; 0b19 7f
-                BNZ   A0b1d            ; 0b1a 94 02
+; Applying velocity changes?
+tempBitmask = $7
+tempOtherBitmask = $6
+tempOtherVelocity = $4
+tempThisVelocity = $5
+
+A0b0e:          
+	; copy lower nybble to upper nybble
+	LR   A,saveBall.velocity ; 0b0e 40
+	SL   4                   ; 0b0f 15
+	AS   saveBall.velocity   ; 0b10 c0
+	LR   saveBall.velocity,A ; 0b11 50
+
+	; ISAR = index of the velocity byte
+	LR   A,main.curBall      ; 0b12 4b
+	SR   1                   ; 0b13 12
+	AI   balls.velocity      ; 0b14 24 26
+	LR   IS,A                ; 0b16 0b
+
+	; Set the bitmask for the appropriate nybble
+	LIS  $1                  ; 0b17 71
+	NS   main.curBall        ; 0b18 fb
+	LIS  %00001111           ; 0b19 7f
+	BNZ   A0b1d              ; 0b1a 94 02
+	COM                      ; 0b1c 18
+A0b1d:
+	LR   tempBitmask, A      ; 0b1d 57
+
+	; Set the bitmask for the opposite nybble 
+	COM                      ; 0b1e 18
+	LR   tempOtherBitmask,A  ; 0b1f 56
+	; save opposite nybble
+	NS   (IS)                ; 0b20 fc
+	LR   tempOtherVelocity,A ; 0b21 54
+
+	; apply the bitmask to get our velocity
+	LR   A,tempBitmask       ; 0b22 47
+	NS   (IS)                ; 0b23 fc
+	LR   tempThisVelocity,A  ; 0b24 55
+
+	; branch ahead if y speed is zero
+	LI   %00110011       ; 0b25 20 33
+	NS   saveBall.velocity   ; 0b27 f0
+	BZ   A0b35               ; 0b28 84 0c
+
+	; mask out everything but the x speed
+	LI   %11001100           ; 0b2a 20 cc
+	NS   tempBitmask         ; 0b2c f7
+	NS   tempThisVelocity    ; 0b2d f5
+	LR   tempThisVelocity,A  ; 0b2e 55
+	
+	; retain the old y speed
+	; set the new x speed to the xspeed in gameSettings
+	LI   %00110011           ; 0b2f 20 33
+	NS   saveBall.velocity   ; 0b31 f0
+	AS   tempThisVelocity    ; 0b32 c5
+	NS   tempBitmask         ; 0b33 f7
+	LR   tempThisVelocity,A  ; 0b34 55
 				
-                COM                      ; 0b1c 18
-A0b1d:          LR   $7,A                ; 0b1d 57
-                COM                      ; 0b1e 18
-                LR   $6,A                ; 0b1f 56
-                NS   (IS)                ; 0b20 fc
-                LR   $4,A                ; 0b21 54
-                LR   A,$7                ; 0b22 47
-                NS   (IS)                ; 0b23 fc
-                LR   $5,A                ; 0b24 55
-                LI   $33                 ; 0b25 20 33
-                NS   $0                  ; 0b27 f0
-                BZ   A0b35             ; 0b28 84 0c
+A0b35:
+	; branch ahead x speed is zero
+	LI   %11001100           ; 0b35 20 cc
+	NS   saveBall.velocity   ; 0b37 f0
+	BZ   A0b45               ; 0b38 84 0c
 				
-                LI   $cc                 ; 0b2a 20 cc
-                NS   $7                  ; 0b2c f7
-                NS   $5                  ; 0b2d f5
-                LR   $5,A                ; 0b2e 55
-                LI   $33                 ; 0b2f 20 33
-                NS   $0                  ; 0b31 f0
-                AS   $5                  ; 0b32 c5
-                NS   $7                  ; 0b33 f7
-                LR   $5,A                ; 0b34 55
-A0b35:          LI   $cc                 ; 0b35 20 cc
-                NS   $0                  ; 0b37 f0
-                BZ   A0b45             ; 0b38 84 0c
-				
-                LI   $33                 ; 0b3a 20 33
-                NS   $7                  ; 0b3c f7
-                NS   $5                  ; 0b3d f5
-                LR   $5,A                ; 0b3e 55
-                LI   $cc                 ; 0b3f 20 cc
-                NS   $0                  ; 0b41 f0
-                AS   $5                  ; 0b42 c5
-                NS   $7                  ; 0b43 f7
-                LR   $5,A                ; 0b44 55
-A0b45:          LR   A,$5                ; 0b45 45
-                AS   $4                  ; 0b46 c4
-                LR   $0,A                ; 0b47 50
+	; mask out everything but the x speed
+	LI   %00110011           ; 0b3a 20 33
+	NS   tempBitmask         ; 0b3c f7
+	NS   tempThisVelocity    ; 0b3d f5
+	LR   tempThisVelocity,A  ; 0b3e 55
+
+	; retain the old x speed
+	; set the new y speed to the xspeed in gameSettings
+	LI   %11001100           ; 0b3f 20 cc
+	NS   saveBall.velocity   ; 0b41 f0
+	AS   tempThisVelocity    ; 0b42 c5
+	NS   tempBitmask         ; 0b43 f7
+	LR   tempThisVelocity,A  ; 0b44 55
+
+A0b45:
+	; Merge the nybbles back together
+	LR   A,tempThisVelocity  ; 0b45 45
+	AS   tempOtherVelocity   ; 0b46 c4
+
+	; Set velocity for saveBall
+	; (saveBall will determine which nybble is this ball's)
+	LR   saveBall.velocity,A ; 0b47 50
 
 	; It is finished... we can save the results
-	PI   saveBall               ; 0b48 28 09 a2
+	PI   saveBall            ; 0b48 28 09 a2
 	
 	; Redraw ball
 	DCI  ballColors          ; 0b4b 2a 08 50
@@ -1735,7 +1800,7 @@ A0c73:
 	
 ;----------------------------
 ; Screen Flash
-;  Unused function
+;  Unused function - possibly an old death animation
 ; Args
 
 ; Locals / Clobbers
@@ -1743,27 +1808,25 @@ flash.timer = 9
 
 ; Constants
 flash.length = $25
-
 ; Returns
+;  N/A
+
 flash: 
 	LR   K,P                 ; 0c8f 08
 	LI   flash.length        ; 0c90 20 25
 	LR   flash.timer, A      ; 0c92 59
-				; if((071 & 0x01) == 0)
-				;  070 = 0x80
-				;  r2 = 0x80
-				; else
-				;  070 = 0xC0
-				;  r2 = 0xC0
-				SETISAR 071              ; 0c93 67 69
-                LIS  $1                  ; 0c95 71
-                NS   (IS)-               ; 0c96 fe
-                LI   $80                 ; 0c97 20 80
-                BZ   A0c9d             ; 0c99 84 03
-				LI   $c0                 ; 0c9b 20 c0
+
+	; Set flash color value depending on value of o71 (who died?)
+	SETISAR 071              ; 0c93 67 69
+	LIS  $1                  ; 0c95 71
+	NS   (IS)-               ; 0c96 fe
+	LI   $80                 ; 0c97 20 80
+	BZ   A0c9d             ; 0c99 84 03
+	LI   $c0                 ; 0c9b 20 c0
 A0c9d:          
 	LR   (IS), A             ; 0c9d 5c
 	LR   draw.ypos, A        ; 0c9e 52
+
 A0c9f:          
 	LR   A,(IS)              ; 0c9f 4c
 A0ca0:          
@@ -1773,6 +1836,7 @@ A0ca0:
 	LR   A,(IS)              ; 0ca1 4c
 	LR   playSound.sound,A   ; 0ca2 53
 	PI   playSound           ; 0ca3 28 0c c8
+	
 	LISL 0                   ; 0ca6 68 ; ???
 	; Set xpos to attribute column
 	LI   gfx.attributeCol    ; 0ca7 20 7d
