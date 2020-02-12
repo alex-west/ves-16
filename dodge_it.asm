@@ -16,12 +16,6 @@
 ; Build Instructions
 ;  dasm dodge_it.asm -f3 -ododge_it.bin
 
-; Terms 
-; - mid-function - A function called from the main thread that saves and restores
-;    the return address using LR K,P, LR P,K, or PK, that calls other functions.
-; - leaf-function - A function that is called from main or a mid function that 
-;    does not save context and does not call other functions.
-
 	processor f8
 
 	include "ves.h"
@@ -170,131 +164,155 @@ ballColors: ; blue, green, red ?
 	
 menuChoices:
 	db $00, $01, $02, $03, $03  ; 0853 00 01
-	
-; --?
 
-;----------------------------
-; leaf-function : draw
-;  This function has 2 entry points
-;  If the second entry point is used, then draw.glyph should be either $80 or $C0
-;  Given the control codes in draw.glyph, this routine should support up to 64 different
-;  characters.
-; 
-; Bitmasks for draw.glyph
-draw.drawRect      = $80
-draw.drawAttribute = $C0
-; Local constants
-draw.colorMask     = $C0
-draw.soundMask     = $C0
-draw.noSoundMask   = $3F
-; Args:
-draw.glyph  = 0 ; r0 - Glyph
-draw.xpos   = 1 ; r1 - X pos
-draw.ypos   = 2 ; r2 - Y pos & color (upper 2 bits)
-draw.width  = 4 ; r4 - Width
-draw.height = 5 ; r5 - Height
-; Locals
-draw.data   = 3 ; r3 as data
-draw.xcount = 6 ; r6 as h_count
-draw.ycount = 7 ; r7 as v_count
-draw.temp   = 8 ; For color and data counter
+;-------------------------------------------------------------------------------
+; draw(param, xpos, ypos, width, height)
+;  Leaf function
+;
+; This function plots pixels to screen. It has two different entry points, which
+;  make it act like two different functions.
+;
+; When entering via drawChar, draw.param should be set to the index of the
+;  character to be drawn. Although the charset only contains 16 characters, it
+;  could be expanded up to 64 without changing this function.
+;
+; When entering via drawBox, draw.param should be set to either DRAW_RECT or
+;  DRAW_ATTRIBUTE depending on whether you're drawing a box or the attribute
+;  column.
+;
+; The x and y coordinates are relative to the top-left corner of the screen.
+;
+; Despite the y position and color being mapped to different I/O ports, this
+;  function expects those values to be bitpacked together. The y position takes
+;  up the lower 6 bits, and the color takes up the upper 2 bits.
+;
+; Although this function modifies draw.xpos and draw.ypos, those variables are
+;  set back to their original values upon returning from the function.
+;
+; == Arguments ==
+draw.param  = 0 ; Drawing Parameter or Character Index
+draw.xpos   = 1 ; X Position
+draw.ypos   = 2 ; Y Position and Color
+draw.width  = 4 ; Width
+draw.height = 5 ; Width
 
-; Entry point for drawing a glyph
-drawGlyph:          
-	; Get the starting address of the desired glyph
-	; dc = graphicsData + glyph/2 + (glyph/2)*4
+; == Entry point == (for drawing a character)
+drawChar: subroutine
+
+; == Local Variables ==
+.data   = 3 ; pixel data
+.xcount = 6 ; horizontal counter
+.ycount = 7 ; vertical counter
+.temp   = 8 ; helps calculate the data counter
+.color  = 8 ; color, as extracted from ypos
+
+; == Local constants ==
+DRAW_RECT      = %10000000 ; Draw a rectangle
+DRAW_ATTRIBUTE = %11000000 ; Draw the attribute column
+
+MASK_COLOR     = %11000000
+MASK_SOUND     = %11000000
+MASK_NO_SOUND  = %00111111
+
+; Get the starting address of the desired character
+	; DC = graphicsData + param/2 + (param/2)*4
 	DCI  graphicsData        ; 0858 2a 08 05
-	LR   A, draw.glyph       ; 085b 40
+	LR   A, draw.param       ; 085b 40
 	SR   1                   ; 085c 12
-	LR   draw.temp, A        ; 085d 58
+	LR   .temp, A            ; 085d 58
 	SL   1                   ; 085e 13
 	SL   1                   ; 085f 13
-	AS   draw.temp           ; 0860 c8
+	AS   .temp               ; 0860 c8
 	ADC                      ; 0861 8e
 
-; Entry point for drawing a box
-drawBox:        
-	; xcount = width
-	; ycount = height
+; == Entry point == (for drawing a box)
+drawBox:
+	; (xcount,ycount) = (width,height)
 	LR   A, draw.width       ; 0862 44
-	LR   draw.xcount, A      ; 0863 56
+	LR   .xcount, A      ; 0863 56
     LR   A, draw.height      ; 0864 45
-    LR   draw.ycount, A      ; 0865 57
+    LR   .ycount, A      ; 0865 57
 
-; Do one row
-draw.doRow:          
-	; Mask out row, put color in r8
+.doRowLoop:
+; I/O write the ypos
+	; Extract color bits from ypos
 	LR   A, draw.ypos        ; 0866 42
-	NI   draw.colorMask      ; 0867 21 c0
-	LR   draw.temp, A        ; 0869 58
-	; Mask out sound, put row in r3
+	NI   MASK_COLOR          ; 0867 21 c0
+	LR   .color, A           ; 0869 58
+	
+	; Mask out sound, put the ypos in .data
 	LR   A, draw.ypos        ; 086a 42
 	COM                      ; 086b 18
-	NI   draw.noSoundMask    ; 086c 21 3f
-	LR   draw.data, A        ; 086e 53
-	; Preserve sound, write row to port 5
-	INS  5                   ; 086f a5
-	NI   draw.soundMask      ; 0870 21 c0
-	AS   draw.data           ; 0872 c3
-	OUTS 5                   ; 0873 b5
+	NI   MASK_NO_SOUND       ; 086c 21 3f
+	LR   .data, A            ; 086e 53
 	
-	; If glyph (r0) is negative, jump ahead
-	CLR                  ; 0874 70
-	AS   draw.glyph          ; 0875 c0
-	LI   $ff                 ; 0876 20 ff
-	BM    draw.label_1    ; 0878 91 09
-	; Load data into r3
-	LM                       ; 087a 16
-	LR   draw.data, A        ; 087b 53
-	; If glyph number is even, jump ahead
-	LIS  $1                  ; 087c 71
-	NS   draw.glyph          ; 087d f0
-	BZ   draw.doPixel        ; 087e 84 04
-	; else, r3 = r3 << 4
-	LR   A, draw.data        ; 0880 43
-	SL   4                   ; 0881 15	
-draw.label_1:
-	LR   draw.data, A        ; 0882 53
+	; Write row to port 5, making sure to preserve the sound
+	INS  5                   ; 086f a5
+	NI   MASK_SOUND          ; 0870 21 c0
+	AS   .data               ; 0872 c3
+	OUTS 5                   ; 0873 b5
 
-draw.doPixel:
-	; port 4 = xpos
+; Load the pixel data into .data
+	; If either DRAW_RECT or DRAW_ATTRIBUTE is
+	;  then set all of the pixels and jump ahead
+	CLR                      ; 0874 70
+	AS   draw.param          ; 0875 c0
+	LI   %11111111           ; 0876 20 ff
+	BM   .setPixelData       ; 0878 91 09
+	
+	; Load .data from memory
+	LM                       ; 087a 16
+	LR   .data, A            ; 087b 53
+
+	; If character number is even, just use the left 4 bits
+	LIS  $1                  ; 087c 71
+	NS   draw.param          ; 087d f0
+	BZ   .doPixelLoop        ; 087e 84 04
+
+	; If char is odd, use the right 4 bits by shifting them into place
+	LR   A, .data            ; 0880 43
+	SL   4                   ; 0881 15	
+.setPixelData:
+	LR   .data, A            ; 0882 53
+
+; I/O write the xpos
+.doPixelLoop:
 	LR   A, draw.xpos        ; 0883 41
 	COM                      ; 0884 18
 	OUTS 4                   ; 0885 b4
 
-	; // Set the output color
-	; if(draw.data(MSB) == 1)
-	;  port 1 = draw.temp & draw.colorMask
-	; else
-	;  port 1 = BG_COLOR & draw.colorMask
-	CLR                  ; 0886 70
-	AS   draw.data           ; 0887 c3
-	LR   A, draw.temp        ; 0888 48
-	BM   draw.label_2    ; 0889 91 02
-	CLR                  ; 088b 70
-draw.label_2:          
+; I/O write the color
+	; if MSB of .data is 1, draw that color
+	; if MSB of .data is 0, draw the BG color
+	CLR                      ; 0886 70
+	AS   .data               ; 0887 c3
+	LR   A, .color           ; 0888 48
+	BM   .setColor           ; 0889 91 02
+	LIS 0                    ; 088b 70
+.setColor:
 	COM                      ; 088c 18
-	NI   draw.colorMask      ; 088d 21 c0
+	NI   MASK_COLOR          ; 088d 21 c0
 	OUTS 1                   ; 088f b1
 	
-	; // Left-shift data, while 1-padding it
-	; data = (data << 1) + 1
-	LR   A, draw.data        ; 0890 43
+; Iterate on to the next data bit, making sure to pad with 1
+	; .data = (.data << 1) + 1
+	LR   A, .data            ; 0890 43
 	SL   1                   ; 0891 13
 	INC                      ; 0892 1f
-	LR   draw.data, A        ; 0893 53
+	LR   .data, A            ; 0893 53
 	
-	; If bit 6 of glyph is (not?) set, skip ahead
-	LR   A, draw.glyph       ; 0894 40
+; If DRAW_ATTRIBUTE is set, iterate to the color of the next column
+	; Check if DRAW_ATTRIBUTE is set
+	LR   A, draw.param       ; 0894 40
 	SL   1                   ; 0895 13
-	BP   draw.label_3      ; 0896 81 04
-	; Else, shift color left
-	LR   A, draw.temp        ; 0898 48
+	BP   .activateWrite      ; 0896 81 04
+	; If so, .color = .color << 1
+	LR   A, .color           ; 0898 48
 	SL   1                   ; 0899 13
-	LR   draw.temp, A        ; 089a 58
+	LR   .color, A           ; 089a 58
 
-draw.label_3:          
-	; Activate VRAM write
+; I/O write to push our color through
+.activateWrite:
 	LI   $60                 ; 089b 20 60
 	OUTS 0                   ; 089d b0
 	LI   $50                 ; 089e 20 50
@@ -305,39 +323,36 @@ draw.label_3:
 	INC                      ; 08a2 1f
 	LR   draw.xpos, A        ; 08a3 51
 	
-	; Delay loop
-	LIS  $4                  ; 08a4 74
-draw.delay:
+; Spin in place to make sure the write goes through
+	LIS  4                   ; 08a4 74
+.delay:
 	AI   $ff                 ; 08a5 24 ff
-	BNZ   draw.delay       ; 08a7 94 fd
+	BNZ  .delay              ; 08a7 94 fd
 	
-	; xcount--
-	DS   draw.xcount         ; 08a9 36
-	; if(xcount != 0) goto doPixel
-	BNZ   draw.doPixel     ; 08aa 94 d8
+	; xcount--, loop on to next pixel if not zero
+	DS   .xcount             ; 08a9 36
+	BNZ  .doPixelLoop        ; 08aa 94 d8
 	
 	; ypos++
 	LR   A, draw.ypos        ; 08ac 42
 	INC                      ; 08ad 1f
 	LR   draw.ypos, A        ; 08ae 52
 	
-	; // Reset x counters
+; Reset xcount and xpos
 	; xcount = width
-	; xpos = xpos - width
 	LR   A, draw.width       ; 08af 44
-	LR   draw.xcount,A       ; 08b0 56
-	; Reset x_pos
+	LR   .xcount,A       ; 08b0 56
+	; xpos = xpos - width
 	COM                      ; 08b1 18
 	INC                      ; 08b2 1f
 	AS   draw.xpos           ; 08b3 c1
 	LR   draw.xpos, A        ; 08b4 51
 
-	; ycount--
-	DS   draw.ycount         ; 08b5 37
-	; // if(ycount != 0) goto doRow
-	BNZ    draw.doRow      ; 08b6 94 af
+	; ycount--, loop on to next row if not zero
+	DS   .ycount             ; 08b5 37
+	BNZ  .doRowLoop          ; 08b6 94 af
 	
-	; // Reset ypos
+; Reset ypos
 	; ypos = ypos - height
 	LR   A, draw.height      ; 08b8 45
 	COM                      ; 08b9 18
@@ -345,17 +360,18 @@ draw.delay:
 	AS   draw.ypos           ; 08bb c2
 	LR   draw.ypos, A        ; 08bc 52
 	
-	; Clear ports
-	CLR                  ; 08bd 70
+; Clear I/O ports
+	CLR                      ; 08bd 70
 	OUTS 1                   ; 08be b1
 	OUTS 0                   ; 08bf b0
+	
 	POP                      ; 08c0 1c
-;
-; end leaf-function draw
-;----------------------------
+
+; end draw()
+;-------------------------------------------------------------------------------
 
 ;----------------------------
-; RNG (probably)
+; rand()
 ; Modifies the contents of o76 and o77
 ; No input arguments
 RNG.seedHi = 076
@@ -365,12 +381,15 @@ RNG.regHi = $6
 RNG.regLo = $7
 
 ; Locals
-RNG.tempISAR = 8 ; r8 is used as temp ISAR
+;RNG.tempISAR = 8 ; r8 is used as temp ISAR
 
-RNG.roll:
+rand: subroutine
+; Locals
+.tempISAR = 8
+
 	; Save the ISAR in r8
 	LR   A,IS                ; 08c1 0a
-	LR   RNG.tempISAR, A; 08c2 58
+	LR   .tempISAR, A; 08c2 58
 	
 	; r6 = o77*2 + o76
 	SETISAR RNG.seedLo      ; 08c3 67 6f
@@ -431,7 +450,7 @@ RNG.roll:
 	LR   (IS)+,A             ; 08ec 5d
 	
 	; Restore ISAR
-	LR   A, RNG.tempISAR; 08ed 48
+	LR   A, .tempISAR        ; 08ed 48
 	LR   IS,A                ; 08ee 0b
 	; Return
 	POP                      ; 08ef 1c
@@ -461,7 +480,7 @@ menu:
 	LR   menu.waitHi, A      ; 08f8 52
 	
 menu.pollInput:
-	PI   RNG.roll            ; 08f9 28 08 c1
+	PI   rand                ; 08f9 28 08 c1
 	DCI  menuChoices               ; 08fc 2a 08 53
 	; Read console buttons
 	CLR                  ; 08ff 70
@@ -819,7 +838,7 @@ spawn:
 spawn.reroll:          
 	; keep rerolling RNG until it gets an inbounds x and y position
 	; xpos = rng.hi
-	PI   RNG.roll            ; 09c3 28 08 c1
+	PI   rand                ; 09c3 28 08 c1
 	LR   A, RNG.regHi        ; 09c6 46
 	CI   spawn.xmin          ; 09c7 25 10
 	BC   spawn.reroll   ; 09c9 82 f9
@@ -940,47 +959,47 @@ drawTimer:
 	; Set glyph
 	LI   drawTimer.digitMask ; 0a27 20 0f
 	NS   (IS)                ; 0a29 fc
-	LR   draw.glyph, A       ; 0a2a 50
+	LR   draw.param, A       ; 0a2a 50
 	; Width
 	LIS  gfx.charWidth       ; 0a2b 74
 	LR   draw.width, A       ; 0a2c 54
 	; Height
 	LIS  gfx.charHeight      ; 0a2d 75
 	LR   draw.height, A      ; 0a2e 55
-	PI   drawGlyph           ; 0a2f 28 08 58
+	PI   drawChar            ; 0a2f 28 08 58
 	
 	; Update score display (tens)
 	; Set glyph
 	LR   A,(IS)-             ; 0a32 4e
 	SR   4                   ; 0a33 14
-	LR   draw.glyph, A       ; 0a34 50
+	LR   draw.param, A       ; 0a34 50
 	; Subtract 5 from x pos
 	LI   drawTimer.xDelta    ; 0a35 20 fb
 	AS   draw.xpos           ; 0a37 c1
 	LR   draw.xpos, A        ; 0a38 51
-	PI   drawGlyph           ; 0a39 28 08 58
+	PI   drawChar            ; 0a39 28 08 58
 	
 	; Update score display (hundreds)
 	; Set glyph
 	LR   A,(IS)              ; 0a3c 4c
 	NI   drawTimer.digitMask ; 0a3d 21 0f
-	LR   draw.glyph, A       ; 0a3f 50
+	LR   draw.param, A       ; 0a3f 50
 	; Subtract 5 from x pos
 	LI   drawTimer.xDelta    ; 0a40 20 fb
 	AS   draw.xpos           ; 0a42 c1
 	LR   draw.xpos, A        ; 0a43 51
-	PI   drawGlyph           ; 0a44 28 08 58
+	PI   drawChar            ; 0a44 28 08 58
 	
 	; Update score display (thousands)
 	; Load glyph
 	LR   A,(IS)              ; 0a47 4c
 	SR   4                   ; 0a48 14
-	LR   draw.glyph, A       ; 0a49 50
+	LR   draw.param, A       ; 0a49 50
 	; Subtract 5 from x pos
 	LI   drawTimer.xDelta    ; 0a4a 20 fb
 	AS   draw.xpos           ; 0a4c c1
 	LR   draw.xpos, A        ; 0a4d 51
-	PI   drawGlyph           ; 0a4e 28 08 58
+	PI   drawChar            ; 0a4e 28 08 58
 	; Exit
 	LR   P,K                 ; 0a51 09
 	POP                      ; 0a52 1c
@@ -1027,8 +1046,8 @@ handleBall:
 	LR   draw.height, A      ; 0a67 55
 
 	; Set parameter
-	LI   draw.drawRect       ; 0a68 20 80
-	LR   draw.glyph, A       ; 0a6a 50
+	LI   DRAW_RECT           ; 0a68 20 80
+	LR   draw.param, A       ; 0a6a 50
 
 	; Undraw ball
 	PI   drawBox               ; 0a6b 28 08 62
@@ -1372,8 +1391,8 @@ A0b55:
 	LR   draw.ypos, A        ; 0b5a 52
 
 	; Set drawing parameters
-	LI   draw.drawRect       ; 0b5b 20 80
-	LR   draw.glyph, A       ; 0b5d 50
+	LI   DRAW_RECT           ; 0b5b 20 80
+	LR   draw.param, A       ; 0b5d 50
 
 	; set ball width/height
 	SETISAR 070              ; 0b5e 67 68
@@ -1595,7 +1614,7 @@ A0bf8:
 	PI   playSound           ; 0bfb 28 0c c8
 	
 	; RNG for random bounce trajectory
-	PI   RNG.roll            ; 0bfe 28 08 c1
+	PI   rand                ; 0bfe 28 08 c1
 
 	; branch ahead if the ydelta from earlier is small (?)
 	LR   A,$2                ; 0c01 42
@@ -1733,7 +1752,7 @@ A0c59:
 setBounds:
 	LR   K,P                 ; 0c5f 08
 A0c60: ; Reroll RNG until r6 is non-zero
-	PI   RNG.roll               ; 0c60 28 08 c1
+	PI   rand                   ; 0c60 28 08 c1
 	CLR                  ; 0c63 70
 	AS   RNG.regHi           ; 0c64 c6
 	BZ   A0c60             ; 0c65 84 fa
@@ -1848,8 +1867,8 @@ A0ca0:
 	LI   gfx.screenHeight    ; 0cac 20 40
 	LR   draw.height, A      ; 0cae 55
 	; Set rendering properties
-	LI   draw.drawAttribute  ; 0caf 20 c0
-	LR   draw.glyph, A       ; 0cb1 50
+	LI   DRAW_ATTRIBUTE      ; 0caf 20 c0
+	LR   draw.param, A       ; 0cb1 50
 	PI   drawBox             ; 0cb2 28 08 62
 	
 	; Clear sound
@@ -1921,8 +1940,8 @@ initRoutine:
 
 ; Clear screen
 	; Set properties
-	LI   draw.drawRect        ; 0cdd 20 80
-	LR   draw.glyph, A       ; 0cdf 50
+	LI   DRAW_RECT            ; 0cdd 20 80
+	LR   draw.param, A       ; 0cdf 50
 	; Set x and y pos
 	CLR                  ; 0ce0 70
 	LR   draw.xpos, A        ; 0ce1 51
@@ -1937,8 +1956,8 @@ initRoutine:
 
 ; Set row attributes
 	; Set rendering properties, ypos, and color
-	LI   draw.drawAttribute  ; 0cec 20 c0
-	LR   draw.glyph, A       ; 0cee 50
+	LI   DRAW_ATTRIBUTE      ; 0cec 20 c0
+	LR   draw.param, A       ; 0cee 50
 	LR   draw.ypos, A        ; 0cef 52
 	; Set width
 	LIS  gfx.attributeWidth  ; 0cf0 72
@@ -1952,7 +1971,7 @@ initRoutine:
 ; Draw the "G?" screen
 	; glyph = 'G'
 	LIS  gfx.G               ; 0cf8 7a
-	LR   draw.glyph, A       ; 0cf9 50
+	LR   draw.param, A       ; 0cf9 50
 	; xpos
 	LI   $30                 ; 0cfa 20 30
 	LR   draw.xpos, A        ; 0cfc 51
@@ -1965,15 +1984,15 @@ initRoutine:
 	; height
 	LIS  gfx.charHeight      ; 0d02 75
 	LR   draw.height, A      ; 0d03 55
-	PI   drawGlyph           ; 0d04 28 08 58
+	PI   drawChar            ; 0d04 28 08 58
 	
 	; glyph = '?'
 	LIS  gfx.Qmark                  ; 0d07 7b
-	LR   draw.glyph, A       ; 0d08 50
+	LR   draw.param, A       ; 0d08 50
 	; x pos
 	LI   $35                 ; 0d09 20 35
 	LR   draw.xpos, A        ; 0d0b 51
-	PI   drawGlyph           ; 0d0c 28 08 58
+	PI   drawChar            ; 0d0c 28 08 58
 	
 	; returns button pressed in the accumulator
 	PI   menu                ; 0d0f 28 08 f0
@@ -1997,7 +2016,7 @@ shuffleGameType:
 
 shuffleGameTypeReroll:
 	DCI  gameModeMasks               ; 0d1e 2a 08 43
-	PI   RNG.roll            ; 0d21 28 08 c1
+	PI   rand                ; 0d21 28 08 c1
 	
 	; put bits 6 and 7 of RNG into r8
 	; set player ball size
@@ -2063,8 +2082,8 @@ shuffleGameTypeReroll:
 restartGame:          
 	; Draw playfield
 	; Set rendering properties
-	LI   draw.drawRect        ; 0d54 20 80
-	LR   draw.glyph, A       ; 0d56 50
+	LI   DRAW_RECT            ; 0d54 20 80
+	LR   draw.param, A       ; 0d56 50
 	; Set x pos
 	LI   $10                 ; 0d57 20 10
 	LR   draw.xpos, A        ; 0d59 51
@@ -2114,8 +2133,8 @@ restartGame:
 	AS   $3                  ; 0d7d c3
 	LR   draw.height, A      ; 0d7e 55
 	; Set rendering properties
-	LI   draw.drawRect        ; 0d7f 20 80
-	LR   draw.glyph, A       ; 0d81 50
+	LI   DRAW_RECT            ; 0d7f 20 80
+	LR   draw.param, A       ; 0d81 50
 	; Draw inner box
 	PI   drawBox             ; 0d82 28 08 62
 	
@@ -2266,7 +2285,8 @@ main.ballLoop:
 
 	PI   handleBall          ; 0e08 28 0a 53
 	PI   ballCollision       ; 0e0b 28 0b 6e
-
+	
+	; if we're not dealing with a player ball, then move on to the next ball
 	DS   main.curBall        ; 0e0e 3b
 	LR   A,main.curBall      ; 0e0f 4b
 	CI   [MAX_PLAYERS-1]     ; 0e10 25 01
@@ -2577,8 +2597,8 @@ spiral.lapcount = 036  ; o36 - spiral lap counter
 drawSpiral:
 	LR   K,P                 ; 0f0a 08
 	; Set properties to draw a rect
-	LI   draw.drawRect       ; 0f0b 20 80
-	LR   draw.glyph, A       ; 0f0d 50
+	LI   DRAW_RECT           ; 0f0b 20 80
+	LR   draw.param, A       ; 0f0d 50
 	
 	; xpos = $34
 	; Note: ypos is set before entering this function
