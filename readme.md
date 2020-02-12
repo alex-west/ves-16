@@ -1,4 +1,5 @@
-A disassembly of "Dodge It", Videocart 16 for the Fairchild Video Entertainment System, or Channel F
+# Dodge It (Videocart 16)
+A disassembly of a game for the Fairchild Video Entertainment System.
 
 Build Instructions
 > dasm dodge_it.asm -f3 -ododge_it.bin
@@ -7,7 +8,7 @@ Current status of the project: ~55%
 
 Every chunk of code has been deciphered to one degree or another. What remains is various clean-up tasks: adding clear documentation, bringing the coding style up to par, answering some remaining unknowns (like what certain bitfields mean).
 
-=== Interesting Bits ===
+## Interesting Bits
 
 There are four unused characters in the character set which are, in order, "F", "A", "S", and "T". There does not appear to be any place in the code where they could be displayed, though hacking the timer to $CDEF just before it's drawn would get it to be displayed.
 
@@ -17,9 +18,9 @@ There is an unused function that flashes the screen. Given how it reads from the
 
 After the last line of code in the game, there is a random byte (0xB2). I have no idea what it could mean.
 
-=== Sundry Technical Notes ===
+## Sundry Technical Notes
 
-== Calling Convention ==
+### Calling Convention
 
 The F8 processor does not have support for a hardware call stack to save return addresses when calling functions. Instead, it has a main program counter (PC0) and a secondary program counter (PC1). When calling a function using the opcode "PI", the return address is pushed from PC0 to PC1. When returning from a function using "POP", the return address is popped from PC1 back into PC0.
 
