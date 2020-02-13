@@ -60,6 +60,7 @@ balls.xpos = 020 ; Array
 balls.ypos = 033 ; Array
 balls.velocity = 046 ; Bitpacked array
 
+MASK_DIRECTION = %10000000
 balls.arraySize = $0B ; Constant
 
 ; Player one's high score
@@ -137,32 +138,32 @@ CartridgeEntry:  JMP initRoutine
 ; Each character takes 5 nybbles of data, split across 5 bytes. Even numbered
 ;  characters take the left nybble while odd numbered characters take the right.
 
-graphicsData:
-	;0,1
+graphicsData: ; 0805
+	; 0 1
 	db %01110010 ;  ███  █ 
 	db %01010110 ;  █ █ ██ 
 	db %01010010 ;  █ █  █ 
 	db %01010010 ;  █ █  █ 
 	db %01110111 ;  ███ ███
-	; 2, 3
+	; 2 3
 	db %01110111 ;  ███ ███
 	db %00010001 ;    █   █
 	db %01110011 ;  ███  ██
 	db %01000001 ;  █     █
 	db %01110111 ;  ███ ███
-	; 4, 5
+	; 4 5
 	db %01010111 ;  █ █ ███
 	db %01010100 ;  █ █ █  
 	db %01110111 ;  ███ ███
 	db %00010001 ;    █   █
 	db %00010111 ;    █ ███
-	; 6, 7
+	; 6 7
 	db %01000111 ;  █   ███
 	db %01000001 ;  █     █
 	db %01110001 ;  ███   █
 	db %01010001 ;  █ █   █
 	db %01110001 ;  ███   █
-	; 8, 9
+	; 8 9
 	db %01110111 ;  ███ ███
 	db %01010101 ;  █ █ █ █
 	db %01110111 ;  ███ ███
@@ -243,7 +244,7 @@ draw.ypos   = 2 ; Y Position and Color
 draw.width  = 4 ; Width
 draw.height = 5 ; Width
 
-; == Entry point == (for drawing a character)
+; == Entry Point == (for drawing a character)
 drawChar: subroutine
 
 ; == Local Variables ==
@@ -1942,24 +1943,31 @@ flash.exit:
 ; end screen flash function
 ;----------------------------
 
-;----------------------------
-; Play ticking sound when bumping into a wall
-; rb - Index of the ball (don't let players make noise?)
-; r3 - Sound to be played
-playSound.sound = 3
+;-------------------------------------------------------------------------------
+; playSound(ball, sound)
+;  Leaf Function
+;
+; Make a ticking noise when the balls collide with something
 
-playSound:      
+; == Arguments ==
+playSound.sound = 3
+; main.curBall = $b
+
+; == Entry Point ==
+playSound: subroutine
 	; if(curBall >= MAX_PLAYERS)
 	;  play the sound
-	; return
 	LR   A, main.curBall     ; 0cc8 4b
 	CI   [MAX_PLAYERS-1]     ; 0cc9 25 01
 	BC   playSound.exit      ; 0ccb 82 03
+	
 	LR   A, playSound.sound  ; 0ccd 43
 	OUTS 5                   ; 0cce b5
+
 playSound.exit:          
 	POP                      ; 0ccf 1c
-;----------------------------
+; end playSound()
+;-------------------------------------------------------------------------------
 
 ;----------------------------	
 ; Init Game
@@ -2776,64 +2784,78 @@ drawSpiral.plotLeft: ; plot left
 drawSpiral.exit: ; Return
 	LR   P,K                 ; 0f69 09
 	POP                      ; 0f6a 1c
-; end drawSpiral function
+; end drawSpiral()
 ;-----------------------------
 
 ;-----------------------------
-; Explode every time the timer reaches 1000
-; Top level procedure
-; r0 = loop counter
-explode.loopCounter = $0
+; explode()
+;  Top-level procedure
+;
+; Move the balls to the center to "explode". This procedure is executed
+;  every 1000 points.
+;
+; Accessed from the end of the main loop, and returns to the beginning of the
+;  main loop.
+;
+; No input arguments
 
-; Constants
-explode.xpos = $30
-explode.ypos = $22
+; == Entry Point ==
+explode: subroutine
 
-explode:          
-	; Set xpos of all balls
-	; ISAR = 0x12
+; == Local Regs ==
+.loopCount = $0
+
+; == Local Constants ==
+.NUM_LOOPS = MAX_ENEMIES
+.X_CENTER = $30
+.Y_CENTER = $22
+
+; == Start ==
+; Prepare for loop to set x positions
+	; ISAR = balls.xpos + MAX_PLAYERS
 	LIS  MAX_PLAYERS         ; 0f6b 72
 	AI   balls.xpos          ; 0f6c 24 10
 	LR   IS,A                ; 0f6e 0b
-
-	; r0 = 9
-	LIS  $9                  ; 0f6f 79
-	LR   $0,A                ; 0f70 50
-explode.xloop:
-	; set xpos while preserving the direction of xvel
-	LI   %10000000           ; 0f71 20 80
+	; .loopCount = .NUM_LOOPS
+	LIS  .NUM_LOOPS          ; 0f6f 79
+	LR   .loopCount,A        ; 0f70 50
+; Set xpos of all enemy balls
+.xLoop:
+	; Set xpos while preserving the x direction
+	LI   MASK_DIRECTION      ; 0f71 20 80
 	NS   (IS)                ; 0f73 fc
-	AI   explode.xpos                 ; 0f74 24 30
+	AI   .X_CENTER           ; 0f74 24 30
 	LR   (IS),A              ; 0f76 5c
-	; increment ISAR (did the programmer forget about the ISAR post-increment?)
+	; ISAR++ (NOTE: ISAR post-increment would only affect the lower octal digit)
 	LR   A,IS                ; 0f77 0a
 	INC                      ; 0f78 1f
 	LR   IS,A                ; 0f79 0b
-	; loop back if not zero
-	DS   $0                  ; 0f7a 30
-	BNZ   explode.xloop            ; 0f7b 94 f5
+	; .loopCount--, loop back if not zero
+	DS   .loopCount          ; 0f7a 30
+	BNZ  .xLoop              ; 0f7b 94 f5
 
-	; Set ypos of all balls
-	; increment ISAR by 2 to skip the player balls
+; Prepare for loop to set y positions
+	; ISAR = balls.ypos + MAX_PLAYERS
 	LR   A,IS                ; 0f7d 0a
 	AI   MAX_PLAYERS         ; 0f7e 24 02
 	LR   IS,A                ; 0f80 0b
-	; r0 = 9
-	LIS  $9                  ; 0f81 79
-	LR   $0,A                ; 0f82 50
-explode.yloop:
-	; set ypos while preserving the direction of yvel
-	LI   %10000000           ; 0f83 20 80
+	; .loopCount = .NUM_LOOPS
+	LIS  .NUM_LOOPS          ; 0f81 79
+	LR   .loopCount,A        ; 0f82 50
+; Set ypos of all enemy balls
+.yLoop:
+	; Set ypos while preserving the y direction
+	LI   MASK_DIRECTION      ; 0f83 20 80
 	NS   (IS)                ; 0f85 fc
-	AI   explode.ypos        ; 0f86 24 22
+	AI   .Y_CENTER           ; 0f86 24 22
 	LR   (IS),A              ; 0f88 5c
-	; increment ISAR, decrement loop counter
+	; ISAR++
 	LR   A,IS                ; 0f89 0a
 	INC                      ; 0f8a 1f
 	LR   IS,A                ; 0f8b 0b
-	DS   $0                  ; 0f8c 30
-	; loop back if not zero
-	BNZ   explode.yloop            ; 0f8d 94 f5
+	; .loopCount, loop back if not
+	DS   .loopCount          ; 0f8c 30
+	BNZ  .yLoop              ; 0f8d 94 f5
 
 	; (ISAR) = reg_a, ISAR++, (ISAR) = reg_a
 	; TODO: Why are we overwriting the speeds of the player balls and the first two enemies?
@@ -2850,10 +2872,10 @@ explode.yloop:
 
 	; Exit
 	JMP  mainLoop               ; 0f98 29 0d a0
-; end explosion procedure
+; end explode()
 ;-----------------------------
 	
-    db $b2 ; Unused?
+    db $b2 ; Unused!
 
 	; Free space - 94 bytes!
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
