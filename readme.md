@@ -14,9 +14,9 @@ There are four unused characters in the character set which are, in order, "F", 
 
 When initializing the game, there is a table that is referenced and an index is calculated for it, but it is never read from. I have no idea what the table could have been for.
 
-There is an unused function that flashes the screen. Given how it reads from the same register as that game over procedure uses to determine who died, I suspect it was used for game overs before the iconic multicolored spiral effect was written.
+There is an unused function that flashes the screen. Given how it reads from the same register that the game over procedure uses to determine who died, I suspect it was used for game overs before the iconic multicolored spiral effect was written.
 
-After the last line of code in the game, there is a random byte (0xB2). I have no idea what it could mean.
+After the last line of code in the game, there is an unused byte (0xB2). Your guess is as good as mine regarding what it could mean.
 
 ## Sundry Technical Notes
 
