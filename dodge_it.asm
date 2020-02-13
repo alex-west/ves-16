@@ -22,25 +22,59 @@
 	
 Reset: equ $0000
 
-; Global Variables / Registers
+;-------------------------------------------------------------------------------
+; Scratchpad Registers
 
-; Main-Level Registers
 main.gameSettings = $A
-playerSizeMask  = %11000000
-enemySizeMask   = %00110000
-playerSpeedMask = %00001100
-enemySpeedMask  = %00000011
+MASK_PLAYER_SIZE  = %11000000
+MASK_ENEMY_SIZE   = %00110000
+MASK_PLAYER_SPEED = %00001100
+MASK_ENEMY_SPEED  = %00000011
 
 main.curBall = $B
 
-; Balls
-balls.xpos = $10 ; Array
-balls.ypos = $1B ; Array
-balls.arraySize = $0B ; Constant
+; Indirect Registers (020-077)
+;  Scratchpad registers solely accessible via indirection (using the ISAR)
+
+; Ball Properties
+;  The x and y positions are fairly straightforward. The xpos is 7 bits, and 
+;   the ypos is 6 bits. Velocity is a bit more complicated.
+;
+;  The balls' velocity is stored in a sign-magnitude format. The sign, or
+;   direction, of the balls' x and y velocities is stored in the upper bits of 
+;   the x and y positions, for those respective directions. The magnitudes are
+;   stored in a bitpacked array, with the information for two balls being stored
+;   in one byte like so:
+;
+;   /-- Ball 0's x speed
+;   |  /-- Ball 0's y speed
+;   XX YY xx yy
+;         |  \-- Ball 1's y speed
+;         \-- Ball 1's x speed
+;
+;  ...and so on and so forth for balls 2 and 3, 4 and 5, etc.
+;
+; Astute observers will note that bit 6 the in y position remains unused, and 
+;  the last byte of the velocity array has an unused nybble. Such waste...
+balls.xpos = 020 ; Array
+balls.ypos = 033 ; Array
 balls.velocity = 046 ; Bitpacked array
+
+balls.arraySize = $0B ; Constant
+
+; Player one's high score
+hiScore.hiByte = 054
+hiScore.loByte = 055
+
 balls.count = 056
+delayIndex  = 057 ; Basically the same as balls.count
 
 ; Arena Bounds
+; The left and top bounds work how you'd expect. However, the right and bottom
+;  bounds are weird. Not only do they have different values for player and enemy
+;  (to account for their different sizes), but they are also negative. In other
+;  words, they give distances for how far the bounds are from some point 256
+;  pixels away from the origin. It's weird and inexplicable
 bounds.rightEnemy = 060
 bounds.rightPlayer = 061
 bounds.left = 062
@@ -52,18 +86,23 @@ bounds.top = 065
 timer.hiByte = 066
 timer.loByte = 067
 
-explosionFlag = 072
+; These two registers are also used for a couple other things (TODO: Note those)
+controller1 = 070 ; Left controller
+controller2 = 071 ; Right controller
 
-hiScore.hiByte = 054
-hiScore.loByte = 055
+explosionFlag = 072
+MASK_EXPLODE = %10000000
+
+hiScore.player2.hiByte = 073
+hiScore.player2.loByte = 074
 
 ; Game mode
 gameMode = 075
 mode.speedMask = $02
 mode.2playerMask = $01
 
-;errata
-delayIndex = 057
+RNG.seedHi = 076
+RNG.seedLo = 077
 
 ;--------------------
 ; Constants
@@ -92,56 +131,64 @@ gfx.charHeight = $5
 CartridgeHeader: db $55, $2b
 CartridgeEntry:  JMP initRoutine
 
+;-------------------------------------------------------------------------------
 ; Graphics data
+; 
+; Each character takes 5 nybbles of data, split across 5 bytes. Even numbered
+;  characters take the left nybble while odd numbered characters take the right.
+
 graphicsData:
 	;0,1
-	db %01110010
-	db %01010110
-	db %01010010
-	db %01010010
-	db %01110111
+	db %01110010 ;  ███  █ 
+	db %01010110 ;  █ █ ██ 
+	db %01010010 ;  █ █  █ 
+	db %01010010 ;  █ █  █ 
+	db %01110111 ;  ███ ███
 	; 2, 3
-	db %01110111
-	db %00010001
-	db %01110011
-	db %01000001
-	db %01110111
+	db %01110111 ;  ███ ███
+	db %00010001 ;    █   █
+	db %01110011 ;  ███  ██
+	db %01000001 ;  █     █
+	db %01110111 ;  ███ ███
 	; 4, 5
-	db %01010111
-	db %01010100
-	db %01110111
-	db %00010001
-	db %00010111
+	db %01010111 ;  █ █ ███
+	db %01010100 ;  █ █ █  
+	db %01110111 ;  ███ ███
+	db %00010001 ;    █   █
+	db %00010111 ;    █ ███
 	; 6, 7
-	db %01000111
-	db %01000001
-	db %01110001
-	db %01010001
-	db %01110001
+	db %01000111 ;  █   ███
+	db %01000001 ;  █     █
+	db %01110001 ;  ███   █
+	db %01010001 ;  █ █   █
+	db %01110001 ;  ███   █
 	; 8, 9
-	db %01110111
-	db %01010101
-	db %01110111
-	db %01010001
-	db %01110001
+	db %01110111 ;  ███ ███
+	db %01010101 ;  █ █ █ █
+	db %01110111 ;  ███ ███
+	db %01010001 ;  █ █   █
+	db %01110001 ;  ███   █
 	; G ?
-	db %11111111
-	db %10000001
-	db %10110010
-	db %10010000
-	db %11110010
+	db %11111111 ; ████████
+	db %10000001 ; █      █
+	db %10110010 ; █ ██  █ 
+	db %10010000 ; █  █    
+	db %11110010 ; ████  █ 
 	; F A
-	db %01110111
-	db %01000101
-	db %01110111
-	db %01000101
-	db %01000101
+	db %01110111 ;  ███ ███
+	db %01000101 ;  █   █ █
+	db %01110111 ;  ███ ███
+	db %01000101 ;  █   █ █
+	db %01000101 ;  █   █ █
 	; S T
-	db %01110111
-	db %01000010
-	db %01110010
-	db %00010010
-	db %01110010
+	db %01110111 ;  ███ ███
+	db %01000010 ;  █    █ 
+	db %01110010 ;  ███  █ 
+	db %00010010 ;    █  █ 
+	db %01110010 ;  ███  █ 
+
+;-------------------------------------------------------------------------------
+; Data Tables
 
 ; Delay table A (easy)
 delayTableA:
@@ -374,8 +421,6 @@ drawBox:
 ; rand()
 ; Modifies the contents of o76 and o77
 ; No input arguments
-RNG.seedHi = 076
-RNG.seedLo = 077
 ; Returns in registers
 RNG.regHi = $6
 RNG.regLo = $7
@@ -512,10 +557,7 @@ menu.wait:
 ; Read controllers
 ; Args 
 ; Locals
-; r0
-; Return
-controller1 = 070 ; Controller 1
-controller2 = 071 ; Controller 2
+; r0 ?
 
 readControllers:          
 	SETISAR controller1      ; 0910 67 68
@@ -638,7 +680,7 @@ playerHandler.checkLeft:
 playerHandler.setXspeed:
 	LR   tempXpos,A          ; 0958 51
 	; set x speed
-	LIS  playerSpeedMask     ; 0959 7c
+	LIS  MASK_PLAYER_SPEED   ; 0959 7c
 	NS   main.gameSettings   ; 095a fa
 	LR   tempVelocity,A      ; 095b 50
 
@@ -664,7 +706,7 @@ playerHandler.checkUp:
 playerHandler.setYspeed:
 	LR   tempYpos,A          ; 096c 52
 	; set y speed
-	LIS  playerSpeedMask     ; 096d 7c
+	LIS  MASK_PLAYER_SPEED   ; 096d 7c
 	NS   main.gameSettings   ; 096e fa
 	SR   1                   ; 096f 12
 	SR   1                   ; 0970 12
@@ -1520,7 +1562,7 @@ A0bad:
 	BM   A0bbd            ; 0bb4 91 08
 				
 	; Get player ball width
-	LI   playerSizeMask      ; 0bb6 20 c0
+	LI   MASK_PLAYER_SIZE    ; 0bb6 20 c0
 	NS   main.gameSettings   ; 0bb8 fa
 	SR   1                   ; 0bb9 12
 	SR   1                   ; 0bba 12
@@ -1528,7 +1570,7 @@ A0bad:
 
 	; or get enemy ball width
 A0bbd:
-	LI   enemySizeMask       ; 0bbd 20 30
+	LI   MASK_ENEMY_SIZE     ; 0bbd 20 30
 	NS   main.gameSettings   ; 0bbf fa
 
 A0bc0:
@@ -1575,14 +1617,14 @@ A0bd5:
 	BM   A0be5            ; 0bdc 91 08
 	
 	; Get player ball width
-	LI   playerSizeMask      ; 0bde 20 c0
+	LI   MASK_PLAYER_SIZE    ; 0bde 20 c0
 	NS   main.gameSettings   ; 0be0 fa
 	SR   1                   ; 0be1 12
 	SR   1                   ; 0be2 12
 	BR   A0be8            ; 0be3 90 04
 	; or get enemy ball width
 A0be5:
-	LI   enemySizeMask       ; 0be5 20 30
+	LI   MASK_ENEMY_SIZE     ; 0be5 20 30
 	NS   main.gameSettings   ; 0be7 fa
 A0be8:
 	SR   4                   ; 0be8 14
@@ -2114,7 +2156,7 @@ restartGame:
 	; Add the enemy size to the width
 	; r3 = (reg_a & $30) >> 4
 	; width += r3
-	LI   enemySizeMask       ; 0d6f 20 30
+	LI   MASK_ENEMY_SIZE     ; 0d6f 20 30
 	NS   main.gameSettings   ; 0d71 fa
 	SR   4                   ; 0d72 14
 	LR   $3,A                ; 0d73 53
@@ -2207,7 +2249,7 @@ main.setDelay:
 	BNZ   main.setTimerPos   ; 0dbe 94 06
 	; if so, set the explosion flag
 	SETISAR explosionFlag    ; 0dc0 67 6a
-	LI   $80                 ; 0dc2 20 80
+	LI   MASK_EXPLODE        ; 0dc2 20 80
 	LR   (IS),A              ; 0dc4 5c
 
 main.setTimerPos:          
@@ -2273,13 +2315,13 @@ main.ballLoopInit:
 main.ballLoop:          
 	; o70 = enemy ball size
 	SETISAR 070              ; 0dfd 67 68
-	LI   enemySizeMask       ; 0dff 20 30
+	LI   MASK_ENEMY_SIZE     ; 0dff 20 30
 	NS   main.gameSettings   ; 0e01 fa
 	SR   4                   ; 0e02 14
 	LR   (IS)+,A             ; 0e03 5d
 	
-	; o71 = enemy speed (TODO: verify)
-	LI   enemySpeedMask      ; 0e04 20 03
+	; o71 = enemy speed 
+	LI   MASK_ENEMY_SPEED    ; 0e04 20 03
 	NS   main.gameSettings   ; 0e06 fa
 	LR   (IS),A              ; 0e07 5c
 
@@ -2296,7 +2338,7 @@ main.ballLoop:
 
 	; o70 = player ball size
 	SETISAR 070              ; 0e17 67 68
-	LI   playerSizeMask      ; 0e19 20 c0
+	LI   MASK_PLAYER_SIZE    ; 0e19 20 c0
 	NS   main.gameSettings   ; 0e1b fa
 	SR   4                   ; 0e1c 14
 	SR   1                   ; 0e1d 12
@@ -2304,7 +2346,7 @@ main.ballLoop:
 	LR   (IS)+,A             ; 0e1f 5d
 	
 	; o71 = player speed
-	LI   playerSpeedMask     ; 0e20 20 0c
+	LI   MASK_PLAYER_SPEED   ; 0e20 20 0c
 	NS   main.gameSettings   ; 0e22 fa
 	SR   1                   ; 0e23 12
 	SR   1                   ; 0e24 12
@@ -2515,12 +2557,12 @@ gameOver.2players:
 	LI   $54                 ; 0ed5 20 54
 	LR   drawTimer.xpos,A    ; 0ed7 50
 	; player 2 hi score? (TODO: verify)
-	SETISAR 074              ; 0ed8 67 6c
+	SETISAR hiScore.player2.loByte              ; 0ed8 67 6c
 	BR   gameOver.2pHiScore  ; 0eda 90 09
 
 gameOver.2pSetParams:
 	; Set drawing parameters for player 1
-	SETISAR hiScore.loByte         ; 0edc 65 6d
+	SETISAR hiScore.loByte   ; 0edc 65 6d
 	; set ypos (or maybe color?)
 	LI   $40                 ; 0ede 20 40
 	LR   drawTimer.ypos,A    ; 0ee0 52
