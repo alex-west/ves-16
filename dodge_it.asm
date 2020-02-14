@@ -418,37 +418,43 @@ drawBox:
 ; end draw()
 ;-------------------------------------------------------------------------------
 
-;----------------------------
+;-------------------------------------------------------------------------------
 ; rand()
-; Modifies the contents of o76 and o77
-; No input arguments
-; Returns in registers
+;  Leaf Function
+;
+; Random number generator. I am uncertain how random this is, or what the
+;  mathematical basis is behind it.
+
+; == Arguments ==
+; None
+
+; == Returns ==
 RNG.regHi = $6
 RNG.regLo = $7
 
-; Locals
-;RNG.tempISAR = 8 ; r8 is used as temp ISAR
-
+; == Entry Point ==
 rand: subroutine
-; Locals
+
+; == Local Variable ==
 .tempISAR = 8
 
-	; Save the ISAR in r8
+; save ISAR to a temp register
 	LR   A,IS                ; 08c1 0a
 	LR   .tempISAR, A; 08c2 58
 	
-	; r6 = o77*2 + o76
+; r6 = o77*2 + o76
 	SETISAR RNG.seedLo      ; 08c3 67 6f
 	LR   A,(IS)-             ; 08c5 4e
 	SL   1                   ; 08c6 13
 	AS   (IS)+               ; 08c7 cd
 	LR   RNG.regHi, A        ; 08c8 56
 	
-	; r6,7 = (r6,77)*2
+; r6,7 = (r6,77)*2
 	;  do the lo byte
 	LR   A,(IS)              ; 08c9 4c
 	AS   (IS)                ; 08ca cc
 	LR   RNG.regLo, A        ; 08cb 57
+
 	;  do the hi byte
 	LR   J,W                 ; 08cc 1e ; save status reg
 	LR   A, RNG.regHi        ; 08cd 46
@@ -457,11 +463,12 @@ rand: subroutine
 	LNK                      ; 08d0 19
 	LR   RNG.regHi, A        ; 08d1 56
 	
-	; r6,7 = (r6,7)*2
+; r6,7 = (r6,7)*2
 	;  do the lo byte
 	LR   A, RNG.regLo        ; 08d2 47
 	AS   RNG.regLo           ; 08d3 c7
 	LR   RNG.regLo, A        ; 08d4 57
+
 	;  do the hi byte
 	LR   J,W                 ; 08d5 1e
 	LR   A, RNG.regHi        ; 08d6 46
@@ -470,24 +477,26 @@ rand: subroutine
 	LNK                      ; 08d9 19
 	LR   RNG.regHi, A        ; 08da 56
 	
-	; r6,7 += r66,67
+; r6,7 += r66,67
 	;  do the lo byte
 	LR   A, RNG.regLo        ; 08db 47
 	AS   (IS)-               ; 08dc ce
 	LR   RNG.regLo, A        ; 08dd 57
+
 	;  do the hi byte
 	LR   A, RNG.regHi        ; 08de 46
 	LNK                      ; 08df 19
 	AS   (IS)+               ; 08e0 cd
 	LR   RNG.regHi, A        ; 08e1 56
 	
-	; r6,r7 += 0x3619
-	; o76,77 = r6,r7
+; r6,r7 += 0x3619	
+; o76,77 = r6,r7
 	;  do the lo byte
 	LR   A, RNG.regLo        ; 08e2 47
 	AI   $19                 ; 08e3 24 19
 	LR   RNG.regLo, A        ; 08e5 57
 	LR   (IS)-,A             ; 08e6 5e
+
 	;  do the hi byte
 	LR   A, RNG.regHi        ; 08e7 46
 	LNK                      ; 08e8 19
@@ -498,69 +507,97 @@ rand: subroutine
 	; Restore ISAR
 	LR   A, .tempISAR        ; 08ed 48
 	LR   IS,A                ; 08ee 0b
+
 	; Return
 	POP                      ; 08ef 1c
-; end of RNG function
-;----------------------------
+; end of rand()
+;-------------------------------------------------------------------------------
 
-;----------------------------
-; Menu
+;-------------------------------------------------------------------------------
+; menu()
+;  Mid-Level Function
+;
+; Returns the menu button you pressed.
+;
+; Note that drawing "G?" is handled by main()
 
-; Locals
-menu.waitTime = $af00
+; == Return ==
 menu.buttons = 0
-menu.waitHi = 2
-menu.waitLo = 1
 
-menu:          
+; == Entry Point ==
+menu: subroutine
+
+; == Locals ==
+.waitTimerHi = 2
+.waitTimerLo = 1
+; Wait time is 10 seconds, according to the manual.
+.WAIT_TIME = $af00
+.DEFAULT_MODE = $1
+
 	LR   K,P                 ; 08f0 08
-	; set lower byte of waitloop counter
-	LIS  [<menu.waitTime]    ; 08f1 70
-	LR   menu.waitLo,A       ; 08f2 51
+
+	; set lower byte of .waitTimer
+	LIS  [<.WAIT_TIME]       ; 08f1 70
+	LR   .waitTimerLo,A      ; 08f2 51
+
 	; clear console buttons, load default state
 	OUTS 0                   ; 08f3 b0
 	INS  0                   ; 08f4 a0
 	LR   menu.buttons, A     ; 08f5 50
-	; set upper byte of waitloop counter
-	LI   [>menu.waitTime]    ; 08f6 20 af
-	LR   menu.waitHi, A      ; 08f8 52
+
+	; set upper byte of .waitTimer
+	LI   [>.WAIT_TIME]       ; 08f6 20 af
+	LR   .waitTimerHi, A     ; 08f8 52
 	
-menu.pollInput:
+.pollInput:
 	PI   rand                ; 08f9 28 08 c1
-	DCI  menuChoices               ; 08fc 2a 08 53
+	
+	; Set DC (to be used after this function in main)
+	DCI  menuChoices         ; 08fc 2a 08 53
+
 	; Read console buttons
-	CLR                  ; 08ff 70
+	CLR                      ; 08ff 70
 	OUTS 0                   ; 0900 b0
 	INS  0                   ; 0901 a0
-	; Check if different
+
+	; Check if different from last time they were read
 	XS   menu.buttons        ; 0902 e0
-	; if not, decrement waitloop
-	BZ   menu.wait           ; 0903 84 03
-	
-menu.exit:
-	LR   $0,A                ; 0905 50
+	; if not, decrement .waitTimer
+	BZ   .wait               ; 0903 84 03
+
+	; Return after 10 seconds or a choice is made
+.exit:
+	LR   menu.buttons,A      ; 0905 50
 	PK                       ; 0906 0c
 
-menu.wait:
-	DS   menu.waitLo         ; 0907 31
-	BNZ   menu.pollInput     ; 0908 94 f0
-	DS   menu.waitHi         ; 090a 32
-	BNZ   menu.pollInput     ; 090b 94 ed
+	; Wait for a choice for 10 seconds
+.wait:
+	DS   .waitTimerLo        ; 0907 31
+	BNZ  .pollInput          ; 0908 94 f0
+	DS   .waitTimerHi        ; 090a 32
+	BNZ  .pollInput          ; 090b 94 ed
+
 	; Default to game mode 1 (1 player, easy)
-	LIS  $1                  ; 090d 71
-	; return
-	BR   menu.exit               ; 090e 90 f6
-;
-; end mid-function menu
-;---------------------------- 
+	LIS  .DEFAULT_MODE       ; 090d 71
+
+	; Return
+	BR   .exit               ; 090e 90 f6
+; end menu()
+;-------------------------------------------------------------------------------
 
 ;----------------------------
-; Read controllers
-; Args 
+; read input()
+;  Leaf Function
+;
+; Args
+;  None
 ; Locals
-; r0 ?
+;  None
+; Returns
+;  input.p1
+;  input.p2
 
-readControllers:          
+readControllers: subroutine
 	SETISAR controller1      ; 0910 67 68
 	
 	; Clear controllers
@@ -582,7 +619,7 @@ readControllers:
 	INC                      ; 091a 1f
 	COM                      ; 091b 18
 	; If the result is zero, return
-	BZ   readControllers.exit               ; 091c 84 06
+	BZ   .exit               ; 091c 84 06
 	
 	; else, shuffle RNG
 	; switch to o77
@@ -593,8 +630,8 @@ readControllers:
 	LR   (IS)-,A             ; 0921 5e
 	; o76--
 	DS   (IS)                ; 0922 3c
-	
-readControllers.exit:
+
+.exit:
 	POP                      ; 0923 1c
 ;
 ;----------------------------
