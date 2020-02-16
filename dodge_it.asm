@@ -32,6 +32,8 @@ MASK_PLAYER_SPEED = %00001100
 MASK_ENEMY_SPEED  = %00000011
 
 main.curBall = $B
+PLAYER_1 = 0
+PLAYER_2 = 1
 
 ; Indirect Registers (020-077)
 ;  Scratchpad registers solely accessible via indirection (using the ISAR)
@@ -61,11 +63,14 @@ balls.ypos = 033 ; Array
 balls.velocity = 046 ; Bitpacked array
 
 MASK_DIRECTION = %10000000
+MASK_XPOSITION = %01111111
+MASK_YPOSITION = %00111111
+
 balls.arraySize = $0B ; Constant
 
 ; Player one's high score
-hiScore.hiByte = 054
-hiScore.loByte = 055
+hiScore.p1.hi = 054
+hiScore.p1.lo = 055
 
 balls.count = 056
 delayIndex  = 057 ; Basically the same as balls.count
@@ -84,22 +89,22 @@ bounds.bottomPlayer = 064
 bounds.top = 065
 
 ; Timer
-timer.hiByte = 066
-timer.loByte = 067
+timer.hi = 066
+timer.lo = 067
 
 ; These two registers are also used for a couple other things (TODO: Note those)
-controller1 = 070 ; Left controller
-controller2 = 071 ; Right controller
+input.p1 = 070 ; Left controller
+input.p2 = 071 ; Right controller
 
 explosionFlag = 072
 MASK_EXPLODE = %10000000
 
-hiScore.player2.hiByte = 073
-hiScore.player2.loByte = 074
+hiScore.p2.hi = 073
+hiScore.p2.lo = 074
 
 ; Game mode
 gameMode = 075
-mode.speedMask = $02
+MODE.SPEED_MASK = $02
 mode.2playerMask = $01
 
 RNG.seedHi = 076
@@ -192,11 +197,11 @@ graphicsData: ; 0805
 ; Data Tables
 
 ; Delay table A (easy)
-delayTableA:
+delayTableEasy:
 	db $19, $16, $13, $11, $0e, $0c, $0a, $08, $06, $03, $01
 
 ; Delay table B (pro)
-delayTableB:
+delayTableHard:
 	db $0b, $0a, $09, $08, $07, $06, $05, $04, $03, $02, $01
 
 ; Bitmasks used while randomizing the game mode
@@ -244,7 +249,7 @@ draw.ypos   = 2 ; Y Position and Color
 draw.width  = 4 ; Width
 draw.height = 5 ; Width
 
-; == Entry Point == (for drawing a character)
+; == Entry Point A == (for drawing a character)
 drawChar: subroutine
 
 ; == Local Variables ==
@@ -273,7 +278,7 @@ MASK_NO_SOUND  = %00111111
 	AS   .temp               ; 0860 c8
 	ADC                      ; 0861 8e
 
-; == Entry point == (for drawing a box)
+; == Entry point B == (for drawing a box)
 drawBox:
 	; (xcount,ycount) = (width,height)
 	LR   A, draw.width       ; 0862 44
@@ -549,7 +554,7 @@ menu: subroutine
 	LI   [>.WAIT_TIME]       ; 08f6 20 af
 	LR   .waitTimerHi, A     ; 08f8 52
 	
-.pollInput:
+.pollInputLoop:
 	PI   rand                ; 08f9 28 08 c1
 	
 	; Set DC (to be used after this function in main)
@@ -573,9 +578,9 @@ menu: subroutine
 	; Wait for a choice for 10 seconds
 .wait:
 	DS   .waitTimerLo        ; 0907 31
-	BNZ  .pollInput          ; 0908 94 f0
+	BNZ  .pollInputLoop      ; 0908 94 f0
 	DS   .waitTimerHi        ; 090a 32
-	BNZ  .pollInput          ; 090b 94 ed
+	BNZ  .pollInputLoop      ; 090b 94 ed
 
 	; Default to game mode 1 (1 player, easy)
 	LIS  .DEFAULT_MODE       ; 090d 71
@@ -585,103 +590,123 @@ menu: subroutine
 ; end menu()
 ;-------------------------------------------------------------------------------
 
-;----------------------------
-; read input()
+;-------------------------------------------------------------------------------
+; readInput()
 ;  Leaf Function
 ;
-; Args
+; Reads input from the hand controllers, and twiddles the RNG a bit (if no
+;  inputs are detected (?)).
+;
+; Note: To enable data reads from the controllers, bit 6 of I/O port 0 needs to
+;  be set to 1. This is done in draw(), meaning that it doesn't need to be done
+;  here (although it might have been better practice to do so).
+;
+; == Arguments ==
 ;  None
-; Locals
+; == Returns ==
+;  input.p1 = 070
+;  input.p2 = 071
+; == Locals ==
 ;  None
-; Returns
-;  input.p1
-;  input.p2
 
-readControllers: subroutine
-	SETISAR controller1      ; 0910 67 68
+; == Entry Point ==
+readInput: subroutine
+	SETISAR input.p1         ; 0910 67 68
 	
-	; Clear controllers
-	CLR                  ; 0912 70
+	; Clear I/O ports
+	CLR                      ; 0912 70
 	OUTS 1                   ; 0913 b1
 	OUTS 4                   ; 0914 b4
-	
-	; Save controller 1 in o70
+		
+	; Read left controller from I/O port 1
 	INS  1                   ; 0915 a1
 	LR   (IS)+,A             ; 0916 5d
 	
-	; Save controller 2 in 071
+	; Read right controller from I/O port 2
 	INS  4                   ; 0917 a4
 	LR   (IS)-,A             ; 0918 5e
 	
-	; Add controller 1 & 2
+	; if(-(input.p1 + input.p2) == 0) then exit
 	AS   (IS)                ; 0919 cc
-	; Take the two's complement
 	INC                      ; 091a 1f
 	COM                      ; 091b 18
-	; If the result is zero, return
 	BZ   .exit               ; 091c 84 06
 	
-	; else, shuffle RNG
-	; switch to o77
+	; else, twiddle with the RNG
 	SETISARL RNG.seedLo     ; 091e 6f
+	; RNG.lo = RNG.lo + 1
 	LIS  $1                  ; 091f 71
-	; o77 = o77 + 1
 	AS   (IS)                ; 0920 cc
 	LR   (IS)-,A             ; 0921 5e
-	; o76--
+	; RNG.hi--
 	DS   (IS)                ; 0922 3c
 
 .exit:
 	POP                      ; 0923 1c
-;
-;----------------------------
+; end of readInput()
+;-------------------------------------------------------------------------------
 	
-;----------------------------	
-; HandlePlayerMovement
+;-------------------------------------------------------------------------------	
+; doPlayers()
+;  Mid-Level Function
 ;
-; Args
-tempVelocity = $0
-tempXpos = $1
-tempYpos = $2
-; locals
-tempLoopCount = $8
+; This function takes the controller inputs sets the speed and direction of each
+;  player's ball accordingly. Player speed is taken from main.gameSettings. The 
+;  results are then save to the xpos, ypos, and speed arrays in the scratchpad.
+;
+; The order in which the players are processed is done randomly.
+;
+; In the case of L/R or U/D conflicts, right takes precedence over left and down
+;  over up.
+;
+; This function does not handle drawing the players.
 
-playerHandler:
+; == Entry Point ==
+doPlayers: subroutine
+
+; == Locals ==
+.speed = $0
+.xpos = $1
+.ypos = $2
+.loopCount = $8
+
 	LR   K,P                 ; 0924 08
-	PI   readControllers               ; 0925 28 09 10
 	
-	; Randomize which player is processed first
+	; Read input from hand controllers
+	PI   readInput           ; 0925 28 09 10
+	
+; Randomize which player is processed first
 	; if LSB of RNG is set
-	;  process player 1 first
+	;  curBall = player 1
 	; else
-	;  process player 2 first
-	SETISAR RNG.seedLo      ; 0928 67 6f
-	LIS  %00000001           ; 092a 71
+	;  curBall = player 2
+	SETISAR RNG.seedLo       ; 0928 67 6f
+	LIS  PLAYER_2            ; 092a 71
 	NS   (IS)                ; 092b fc
-	CLR                  ; 092c 70
-	BNZ   playerHandler.setPlayer            ; 092d 94 02
-	LIS  1                  ; 092f 71
-playerHandler.setPlayer:
+	LIS  PLAYER_1            ; 092c 70
+	BNZ  .setPlayer          ; 092d 94 02
+	LIS  PLAYER_2            ; 092f 71
+.setPlayer:
 	LR   main.curBall,A      ; 0930 5b
 
-	; r8 = 2 ; loop count
+	; .loopCount = 2
 	LIS  MAX_PLAYERS         ; 0931 72
-	LR   tempLoopCount,A     ; 0932 58
+	LR   .loopCount,A        ; 0932 58
 
-	; start loop
-playerHandler.mainLoop:
-	; clear speed (so we don't move if nothing is pressed)
+; start loop
+.playerLoop:
+	; speed = 0 (so we don't move if nothing is pressed)
 	CLR                      ; 0933 70
-	LR   tempVelocity,A      ; 0934 50
+	LR   .speed,A            ; 0934 50
 
-	; tempXpos = xpos[curBall]
+	; .xpos = xpos[curBall]
 	LR   A,main.curBall      ; 0935 4b
 	AI   balls.xpos          ; 0936 24 10
 	LR   IS,A                ; 0938 0b
 	LR   A,(IS)              ; 0939 4c
-	LR   tempXpos,A          ; 093a 51
+	LR   .xpos,A             ; 093a 51
 
-	; tempypos = ypos[curBall]
+	; .ypos = ypos[curBall]
 	LR   A,IS                ; 093b 0a
 	AI   balls.arraySize     ; 093c 24 0b
 	LR   IS,A                ; 093e 0b
@@ -689,148 +714,189 @@ playerHandler.mainLoop:
 	LR   $2,A                ; 0940 52
 
 	; set ISAR to match the current player's controller
-	SETISARU controller1     ; 0941 67
-	LIS  %00000001           ; 0942 71
+	SETISARU RNG.seedLo      ; 0941 67
+	LIS  PLAYER_2            ; 0942 71
 	NS   main.curBall        ; 0943 fb
-	SETISARL controller2     ; 0944 69
-	BNZ   playerHandler.checkRight ; 0945 94 02
-	SETISARL controller1     ; 0947 68
+	SETISARL input.p2        ; 0944 69
+	BNZ  .checkRight         ; 0945 94 02
+	SETISARL input.p1        ; 0947 68
 
-	; Check if right is pressed
-playerHandler.checkRight:
+; Check if right is pressed
+.checkRight:
 	LIS  CONTROL_RIGHT       ; 0948 71
 	NS   (IS)                ; 0949 fc
-	BNZ  playerHandler.checkLeft ; 094a 94 06
-	; If so, set x direction to right
-	LR   A,tempXpos          ; 094c 41
-	NI   %01111111           ; 094d 21 7f
-	BR   playerHandler.setXspeed; 094f 90 08
+	BNZ  .checkLeft          ; 094a 94 06
 
-	; Check if left is pressed
-playerHandler.checkLeft:
+	; If so, set x direction to right
+	LR   A,.xpos             ; 094c 41
+	NI   MASK_XPOSITION      ; 094d 21 7f
+	BR   .setXspeed          ; 094f 90 08
+
+; Check if left is pressed
+.checkLeft:
 	LIS  CONTROL_LEFT        ; 0951 72
 	NS   (IS)                ; 0952 fc
-	BNZ  playerHandler.checkDown ; 0953 94 08
+	BNZ  .checkDown          ; 0953 94 08
+
 	; If so, set x direction to left
-	LR   A,tempXpos          ; 0955 41
-	OI   %10000000           ; 0956 22 80
-	
-playerHandler.setXspeed:
-	LR   tempXpos,A          ; 0958 51
-	; set x speed
+	LR   A,.xpos             ; 0955 41
+	OI   MASK_DIRECTION      ; 0956 22 80
+
+.setXspeed:
+	; Apply the direction to .xpos
+	LR   .xpos,A             ; 0958 51
+	; xspeed = gameSettings.playerSpeed
 	LIS  MASK_PLAYER_SPEED   ; 0959 7c
 	NS   main.gameSettings   ; 095a fa
-	LR   tempVelocity,A      ; 095b 50
+	LR   .speed,A            ; 095b 50
 
-	; Check if down is pressed
-playerHandler.checkDown:
+; Check if down is pressed
+.checkDown:
 	LIS  CONTROL_BACKWARD    ; 095c 74
 	NS   (IS)                ; 095d fc
-	BNZ   playerHandler.checkUp ; 095e 94 06
+	BNZ  .checkUp            ; 095e 94 06
+
 	; If so, set y direction to down
-	LR   A,tempYpos          ; 0960 42
-	NI   %00111111           ; 0961 21 3f
-	BR   playerHandler.setYspeed ; 0963 90 08
+	LR   A,.ypos             ; 0960 42
+	NI   MASK_YPOSITION      ; 0961 21 3f
+	BR   .setYspeed          ; 0963 90 08
 	
-	; Check if up is pressed
-playerHandler.checkUp:
+; Check if up is pressed
+.checkUp:
 	LIS  CONTROL_FORWARD     ; 0965 78
 	NS   (IS)                ; 0966 fc
-	BNZ   playerHandler.prepSaveBall ; 0967 94 0b
-	; If so, set y direction to up
-	LR   A,tempYpos          ; 0969 42
-	OI   %10000000           ; 096a 22 80
+	BNZ  .prepSaveBall       ; 0967 94 0b
 
-playerHandler.setYspeed:
-	LR   tempYpos,A          ; 096c 52
-	; set y speed
+	; If so, set y direction to up
+	LR   A,.ypos             ; 0969 42
+	OI   MASK_DIRECTION      ; 096a 22 80
+
+.setYspeed:
+	; Apply the direction to .ypos
+	LR   .ypos,A             ; 096c 52
+	; yspeed = gameSettings.playerSpeed
 	LIS  MASK_PLAYER_SPEED   ; 096d 7c
 	NS   main.gameSettings   ; 096e fa
 	SR   1                   ; 096f 12
 	SR   1                   ; 0970 12
-	AS   tempVelocity        ; 0971 c0
-	LR   tempVelocity,A      ; 0972 50
+	AS   .speed              ; 0971 c0
+	LR   .speed,A            ; 0972 50
 
-playerHandler.prepSaveBall:
-	; copy the velocity to the other nybble
-	; (saveBall will figure out which one it needs)
-	LR   A,tempVelocity      ; 0973 40
+; Copy the speed to the other nybble
+.prepSaveBall:
+	LR   A,.speed            ; 0973 40
 	SL   4                   ; 0974 15
-	AS   tempVelocity        ; 0975 c0
-	LR   tempVelocity,A      ; 0976 50
+	AS   .speed              ; 0975 c0
+	LR   .speed,A            ; 0976 50
+	; saveBall will figure out which nybble to save
+	
+	; Save the ball to the scratchpad arrays
 	PI   saveBall            ; 0977 28 09 a2
 	
-	; set curBall to the other player's ball
+; Set curBall to the other player's ball
 	; (why not xor the register with a constant 1?)
-	LIS  $1                  ; 097a 71
+	LIS  PLAYER_2            ; 097a 71
 	NS   main.curBall        ; 097b fb
-	CLR                      ; 097c 70
-	BNZ   playerHandler.setNextPlayer ; 097d 94 02
-	LIS  $1                  ; 097f 71
-playerHandler.setNextPlayer:
+	LIS  PLAYER_1            ; 097c 70
+	BNZ  .setNextPlayer      ; 097d 94 02
+	LIS  PLAYER_2            ; 097f 71
+.setNextPlayer:
 	LR   main.curBall,A      ; 0980 5b
 	
-	; decrement the loop counter
-	DS   tempLoopCount       ; 0981 38
-	BNZ   playerHandler.mainLoop ; 0982 94 b0
-
+	; .loopCount--
+	DS   .loopCount          ; 0981 38
+	BNZ  .playerLoop         ; 0982 94 b0
+	
+	; Return
 	LR   P,K                 ; 0984 09
 	POP                      ; 0985 1c
-; end player handler function
-;----------------------------
+; end doPlayers()
+;-------------------------------------------------------------------------------
 
-;----------------------------
-; Variable delay function
-; Args
-; Use this if entering via delay.viaLookup
-delay.index    = 0
-; Use this if entering via delay.variable
-delay.count    = 0
-; Locals
-delay.tempISAR = 3
+;-------------------------------------------------------------------------------
+; delayByTable(index)
+; delayVariable(count)
+;  Leaf Functions
+;
+; This procedure has two different entry points, so we can consider it two
+;  different functions. Alternatively, we can think of the first function as
+;  calling the second function by having just continuing on to its code.
+;  (Alternatively, this is just some spaghetti code.)
+;
+; The first sets the delay according to the game mode and the current number of
+;  balls. This function is necessary to make sure that the game runs at a
+;  consistent speed, since the Channel F does not have any means of
+;  synchronizing itself to vblank or anything like that.
+;
+; The second function sets a delay according to an a count provided by the
+;  callee. This is useful for providing short pauses, like during a game over.
+;
+; TODO: Find a rough conversion between delay.count and the amount of time this
+;  function actually delays.
 
-delay.viaLookup:
-	; // Get the appropriate delay count from an array in ROM.
-	; // Also, save the ISAR during this so it doesn't get clobbered
+; == Arguments ==
+; Same register, yes, but this is good syntactic sugar.
+delay.index = 0 ; when entering through delayByTable 
+delay.count = 0 ; when entering through delayVariable
+
+; == Entry Point A ==
+delayByTable: subroutine
+
+; == Locals ==
+.tempISAR = 3
+
 	; if(gameMode & speedMask == 0)
-	;  count = delayTableA[index]
+	;  count = delayTableEasy[index]
 	; else
-	;  count = delayTableB[index]
-	DCI  delayTableA         ; 0986 2a 08 2d
+	;  count = delayTableHard[index]
+	; Set 
+	DCI  delayTableEasy      ; 0986 2a 08 2d
 	
-	; Save the ISAR
-	LR   A,IS               ; 0989 0a
-	LR   delay.tempISAR, A  ; 098a 53
+; Save the ISAR
+	LR   A,IS                ; 0989 0a
+	LR   .tempISAR,A         ; 098a 53
 	
+; Test to check the game speed
 	SETISAR gameMode         ; 098b 67 6d
-	LIS  mode.speedMask      ; 098d 72
+	LIS  MODE.SPEED_MASK     ; 098d 72
 	NS   (IS)                ; 098e fc
 	
-	; Restore the ISAR
-	LR   A, delay.tempISAR  ; 098f 43
-	LR   IS, A              ; 0990 0b
+; Restore the ISAR
+	LR   A,.tempISAR         ; 098f 43
+	LR   IS,A                ; 0990 0b
 	
-	BZ   delay.loadData     ; 0991 84 04
-	DCI  delayTableB        ; 0993 2a 08 38
+	; Branch ahead if playing easy
+	BZ   .loadData           ; 0991 84 04
+	
+	; Else, set the table to hard
+	DCI  delayTableHard      ; 0993 2a 08 38
 
-delay.loadData:          
+; delay.count = delayTable[index]
+.loadData:
 	LR   A, delay.index      ; 0996 40
 	ADC                      ; 0997 8e
 	LM                       ; 0998 16
 	LR   delay.count, A      ; 0999 50
 
-delay.variable:
-	CLR                  ; 099a 70
-delay.inner:
-	INC                      ; 099b 1f
-	BNZ  delay.inner         ; 099c 94 fe
-	DS   delay.count         ; 099e 30
-	BNZ  delay.variable      ; 099f 94 fa
+; == Entry Point B ==
+delayVariable:
 
+; A = 0
+.outerLoop:
+	LIS  0                   ; 099a 70	
+; A--	
+.innerLoop:
+	INC                      ; 099b 1f
+	BNZ  .innerLoop          ; 099c 94 fe
+; count--
+	DS   delay.count         ; 099e 30
+	BNZ  .outerLoop          ; 099f 94 fa
+
+	; Return
 	POP                      ; 09a1 1c
-; end of delay function
-;----------------------------
-	
+; end of delayByTable() and delayVariable()
+;-------------------------------------------------------------------------------
+
 ;----------------------------
 ; save ball function
 ;  saves the temp xpos, ypos, and velocity of a ball to their arrays
@@ -870,7 +936,7 @@ saveBall:
 	LIS  $1                  ; 09b3 71
 	NS   main.curBall        ; 09b4 fb
 	LIS  %00001111           ; 09b5 7f
-	BNZ   A09b9              ; 09b6 94 02
+	BNZ  A09b9              ; 09b6 94 02
 	COM                      ; 09b8 18
 A09b9:          
 	LR   saveBall.mask,A     ; 09b9 53
@@ -1000,7 +1066,7 @@ spawn.handlePlayers:
 	;  xpos = 0x33
 	; else xpos = 0x33 + 0x07
 	LI   spawn.playerX1                  ; 0a14 20 33
-	BNZ   spawn.setXPos                  ; 0a16 94 03
+	BNZ  spawn.setXPos                   ; 0a16 94 03
 	AI   spawn.playerX2 - spawn.playerX1 ; 0a18 24 07
 spawn.setXPos:
 	LR   spawn.xpos,A                ; 0a1a 51
@@ -1150,7 +1216,7 @@ handleBall:
 	LIS  $1                  ; 0a75 71
 	NS   main.curBall        ; 0a76 fb
 	LIS  %00001111           ; 0a77 7f
-	BNZ   A0a7b              ; 0a78 94 02
+	BNZ  A0a7b               ; 0a78 94 02
 	COM                      ; 0a7a 18
 A0a7b:          
 	LR   $6,A                ; 0a7b 56
@@ -1384,7 +1450,7 @@ A0b0e:
 	LIS  $1                  ; 0b17 71
 	NS   main.curBall        ; 0b18 fb
 	LIS  %00001111           ; 0b19 7f
-	BNZ   A0b1d              ; 0b1a 94 02
+	BNZ  A0b1d               ; 0b1a 94 02
 	COM                      ; 0b1c 18
 A0b1d:
 	LR   tempBitmask, A      ; 0b1d 57
@@ -1537,7 +1603,7 @@ ballCollision.loopA:
 	LIS  $1                  ; 0b82 71
 	NS   (IS)                ; 0b83 fc
 	; If so, skip ahead
-	BNZ   A0b8c            ; 0b84 94 07
+	BNZ  A0b8c               ; 0b84 94 07
 	
 	; If not, check if the loop counter is a player's ball
 	SETISARL testBall        ; 0b86 69
@@ -1754,7 +1820,7 @@ A0c29:
 	LIS  $1                  ; 0c2e 71
 	NS   $0                  ; 0c2f f0
 	LIS  $f                  ; 0c30 7f
-	BNZ   A0c34            ; 0c31 94 02
+	BNZ  A0c34               ; 0c31 94 02
 	COM                      ; 0c33 18
 A0c34:
 	; save it in r3
@@ -1844,10 +1910,10 @@ A0c60: ; Reroll RNG until r6 is non-zero
 	;   go back and reroll
 	LR   A,$1                ; 0c67 41
 	CI   $58                 ; 0c68 25 58
-	LR   A, RNG.regHi                ; 0c6a 46
-	BNZ   A0c71            ; 0c6b 94 05
+	LR   A, RNG.regHi        ; 0c6a 46
+	BNZ  A0c71               ; 0c6b 94 05
 	CI   $12                 ; 0c6d 25 12
-	BR   A0c73            ; 0c6f 90 03
+	BR   A0c73               ; 0c6f 90 03
 A0c71:
 	CI   $0b                 ; 0c71 25 0b
 A0c73:
@@ -1958,7 +2024,7 @@ A0ca0:
 	; Delay
 	LIS  $b                  ; 0cb7 7b
 	LR   delay.count, A      ; 0cb8 50
-	PI   delay.variable      ; 0cb9 28 09 9a
+	PI   delayVariable       ; 0cb9 28 09 9a
 
 	DS   flash.timer         ; 0cbc 39
 	BM   flash.exit          ; 0cbd 91 08
@@ -2226,8 +2292,8 @@ restartGame:
 	PI   drawBox             ; 0d82 28 08 62
 	
 	; timer = 0
-	SETISAR timer.hiByte     ; 0d85 66 6e
-	CLR                  ; 0d87 70
+	SETISAR timer.hi         ; 0d85 66 6e
+	CLR                      ; 0d87 70
 	LR   (IS)+,A             ; 0d88 5d
 	LR   (IS)+,A             ; 0d89 5d
 
@@ -2264,7 +2330,7 @@ mainLoop:
 	;   delay index = 10
 	; else
 	;	delay index = timer.hi + 1
-	SETISAR timer.hiByte     ; 0da2 66 6e
+	SETISAR timer.hi         ; 0da2 66 6e
 	LR   A,(IS)+             ; 0da4 4d
 	INC                      ; 0da5 1f
 	CI   [MAX_BALLS-1]       ; 0da6 25 0a
@@ -2273,7 +2339,7 @@ mainLoop:
 main.setDelay:
 	SETISARU delayIndex      ; 0dab 65
 	LR   (IS),A              ; 0dac 5c
-	SETISARU timer.loByte    ; 0dad 66
+	SETISARU timer.lo        ; 0dad 66
 
 	; Increment 16-bit BCD timer
 	; timer.lo++
@@ -2287,11 +2353,11 @@ main.setDelay:
 	LR   (IS)+,A             ; 0db7 5d
 	; check if hundreds digit is zero
 	NI   %00001111           ; 0db8 21 0f
-	BNZ   main.setTimerPos   ; 0dba 94 0a
+	BNZ  main.setTimerPos    ; 0dba 94 0a
 	; if so, check if tens and ones digits are zero				
 	CLR                      ; 0dbc 70
 	AS   (IS)                ; 0dbd cc
-	BNZ   main.setTimerPos   ; 0dbe 94 06
+	BNZ  main.setTimerPos    ; 0dbe 94 06
 	; if so, set the explosion flag
 	SETISAR explosionFlag    ; 0dc0 67 6a
 	LI   MASK_EXPLODE        ; 0dc2 20 80
@@ -2305,7 +2371,7 @@ main.setTimerPos:
 	NS   (IS)                ; 0dc8 fc
 	; Display in middle if 2 player mode
 	LI   $39                 ; 0dc9 20 39
-	BNZ   main.drawTimer     ; 0dcb 94 03
+	BNZ  main.drawTimer      ; 0dcb 94 03
 	; Display to left if 1 player mode
 	LI   $1f                 ; 0dcd 20 1f
 main.drawTimer:          
@@ -2314,14 +2380,14 @@ main.drawTimer:
 	LI   $80                 ; 0dd0 20 80
 	LR   drawTimer.ypos, A   ; 0dd2 52
 	; Set ISAR to LSB of score
-	SETISAR timer.loByte     ; 0dd3 66 6f
+	SETISAR timer.lo         ; 0dd3 66 6f
 	PI   drawTimer           ; 0dd5 28 0a 20
 
 	; delay(delayIndex)
 	SETISAR delayIndex       ; 0dd8 65 6f
 	LR   A,(IS)              ; 0dda 4c
 	LR   delay.index, A      ; 0ddb 50
-	PI   delay.viaLookup     ; 0ddc 28 09 86
+	PI   delayByTable        ; 0ddc 28 09 86
 
 	; set current ball to balls.count
 	SETISAR balls.count      ; 0ddf 65 6e
@@ -2379,7 +2445,7 @@ main.ballLoop:
 	CI   [MAX_PLAYERS-1]     ; 0e10 25 01
 	BNC   main.ballLoop      ; 0e12 92 ea
 
-	PI   playerHandler       ; 0e14 28 09 24
+	PI   doPlayers           ; 0e14 28 09 24
 
 	; o70 = player ball size
 	SETISAR 070              ; 0e17 67 68
@@ -2463,12 +2529,12 @@ gameOver.label1:
 	; restore flags
 	; loop back if o46 != 0
 	LR   W,J                 ; 0e5f 1d
-	BNZ   gameOver.spiralLoop            ; 0e60 94 eb
+	BNZ  gameOver.spiralLoop ; 0e60 94 eb
 
-	; delay.variable($0)
+	; delayVariable($0)
 	CLR                  ; 0e62 70
 	LR   delay.count, A      ; 0e63 50
-	PI   delay.variable      ; 0e64 28 09 9a
+	PI   delayVariable       ; 0e64 28 09 9a
 
 	; Set color depending on who died
 	; 1P - Red
@@ -2502,27 +2568,27 @@ gameOver.clearSpiral:
 	; Delay
 	LI   $28                 ; 0e83 20 28
 	LR   delay.count,A       ; 0e85 50
-	PI   delay.variable      ; 0e86 28 09 9a
+	PI   delayVariable       ; 0e86 28 09 9a
 	
 	; Check if two players
 	SETISAR gameMode         ; 0e89 67 6d
 	LIS  mode.2playerMask    ; 0e8b 71
 	NS   (IS)                ; 0e8c fc
 	; If so, jump ahead
-	BNZ   gameOver.2players  ; 0e8d 94 38
+	BNZ  gameOver.2players   ; 0e8d 94 38
 
 ;----------------------------
 ; Game over cleanup - 1 player case
 	; One player case
 	; r6/r7 = timer
-	SETISAR timer.hiByte     ; 0e8f 66 6e
+	SETISAR timer.hi         ; 0e8f 66 6e
 	LR   A,(IS)+             ; 0e91 4d
 	LR   $6,A                ; 0e92 56
 	LR   A,(IS)              ; 0e93 4c
 	LR   $7,A                ; 0e94 57
 	
 	; check if tempTimer.hi < hiScore.hi
-	SETISAR hiScore.hiByte   ; 0e95 65 6c
+	SETISAR hiScore.p1.hi    ; 0e95 65 6c
 	LR   A,(IS)+             ; 0e97 4d
 	COM                      ; 0e98 18
 	INC                      ; 0e99 1f
@@ -2531,7 +2597,7 @@ gameOver.clearSpiral:
 	BM   gameOver.1pEnd      ; 0e9b 91 16
 	; else, check if tempTimer.hi != hiScore.hi
 	;  if so, replace the old high score
-	BNZ   gameOver.1pHiScore ; 0e9d 94 07
+	BNZ  gameOver.1pHiScore  ; 0e9d 94 07
 	; else, check if tempTimer.lo < hiScore.lo
 	LR   A,(IS)              ; 0e9f 4c
 	COM                      ; 0ea0 18
@@ -2560,10 +2626,10 @@ gameOver.1pEnd:
 	; Delay
 	LI   $40                 ; 0eb2 20 40
 	LR   delay.count, A      ; 0eb4 50
-	PI   delay.variable      ; 0eb5 28 09 9a
+	PI   delayVariable       ; 0eb5 28 09 9a
 	
 	; Read controllers
-	PI   readControllers     ; 0eb8 28 09 10
+	PI   readInput           ; 0eb8 28 09 10
 	
 	; If controller is pushed, keep gametype
 	LISL 0                   ; 0ebb 68
@@ -2582,7 +2648,7 @@ gameOver.gotoShuffle:
 ; Game over cleanup - 2 player case
 gameOver.2players:
 	; r6/r7 = timer
-	SETISAR timer.hiByte     ; 0ec6 66 6e
+	SETISAR timer.hi         ; 0ec6 66 6e
 	LR   A,(IS)+             ; 0ec8 4d
 	LR   $6,A                ; 0ec9 56
 	LR   A,(IS)              ; 0eca 4c
@@ -2592,7 +2658,7 @@ gameOver.2players:
 	SETISAR 071              ; 0ecc 67 69
 	LIS  $1                  ; 0ece 71
 	NS   (IS)                ; 0ecf fc
-	BNZ   gameOver.2pSetParams; 0ed0 94 0b
+	BNZ  gameOver.2pSetParams; 0ed0 94 0b
 
 	; Set parameters for player 2
 	; set ypos (and color)
@@ -2602,12 +2668,12 @@ gameOver.2players:
 	LI   $54                 ; 0ed5 20 54
 	LR   drawTimer.xpos,A    ; 0ed7 50
 	; player 2 hi score? (TODO: verify)
-	SETISAR hiScore.player2.loByte              ; 0ed8 67 6c
+	SETISAR hiScore.p2.lo    ; 0ed8 67 6c
 	BR   gameOver.2pHiScore  ; 0eda 90 09
 
 gameOver.2pSetParams:
 	; Set drawing parameters for player 1
-	SETISAR hiScore.loByte   ; 0edc 65 6d
+	SETISAR hiScore.p1.lo    ; 0edc 65 6d
 	; set ypos (or maybe color?)
 	LI   $40                 ; 0ede 20 40
 	LR   drawTimer.ypos,A    ; 0ee0 52
@@ -2644,11 +2710,11 @@ gameOver.2pHiScoreHiByte:
 	PI   drawTimer           ; 0ef8 28 0a 20
 
 	; Read controllers
-	PI   readControllers               ; 0efb 28 09 10
+	PI   readInput           ; 0efb 28 09 10
 
 	; If neither player is touching anything, shuffle gametype
 	; Player 1
-	SETISARL controller1     ; 0efe 68
+	SETISARL input.p1        ; 0efe 68
 	CLR                      ; 0eff 70
 	AS   (IS)+               ; 0f00 cd
 	BM   gameOver.gotoShuffle; 0f01 91 c1
@@ -2729,7 +2795,7 @@ drawSpiral.plotUp: ; plot up
 	; vcount-- (o26)
 	DS   (IS)                ; 0f29 3c ; is = 0x16
 	; loop until vcount reaches 0
-	BNZ   drawSpiral.plotUp  ; 0f2a 94 fa
+	BNZ  drawSpiral.plotUp   ; 0f2a 94 fa
 	
 	; goto exit if o36 (spiral lap counter) is zero
 	LR   W,J                 ; 0f2c 1d ; restore flags
@@ -2752,7 +2818,7 @@ drawSpiral.plotRight: ; plot right
 	; hcount-- (o25)
 	DS   (IS)                ; 0f3a 3c
 	; loop until hcount reaches 0
-	BNZ   drawSpiral.plotRight ; 0f3b 94 f8
+	BNZ  drawSpiral.plotRight; 0f3b 94 f8
 	
 	; Clear sound
 	CLR                      ; 0f3d 70
@@ -2774,7 +2840,7 @@ drawSpiral.plotDown: ; plot down
 	PI   drawBox             ; 0f47 28 08 62
 	; vcount-- (o26)
 	DS   (IS)                 ; 0f4a 3c
-	BNZ   drawSpiral.plotDown ; 0f4b 94 f8
+	BNZ  drawSpiral.plotDown ; 0f4b 94 f8
 
 	; vdiameter++ (o27)
 	LR   A,(IS)+             ; 0f4d 4d ;is=o26
@@ -2791,7 +2857,7 @@ drawSpiral.plotLeft: ; plot left
 	PI   drawBox             ; 0f53 28 08 62
 	; hcount-- (o25)
 	DS   (IS)                 ; 0f56 3c
-	BNZ   drawSpiral.plotLeft ; 0f57 94 fa
+	BNZ  drawSpiral.plotLeft  ; 0f57 94 fa
 
 	; hdiameter++ (o24) 
 	LR   A,(IS)-             ; 0f59 4e ;is=o25
