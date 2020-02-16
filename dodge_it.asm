@@ -60,11 +60,15 @@ PLAYER_2 = 1
 ;  the last byte of the velocity array has an unused nybble. Such waste...
 balls.xpos = 020 ; Array
 balls.ypos = 033 ; Array
-balls.velocity = 046 ; Bitpacked array
+balls.speed = 046 ; Bitpacked array
 
 MASK_DIRECTION = %10000000
 MASK_XPOSITION = %01111111
 MASK_YPOSITION = %00111111
+
+MASK_SPEED  = %00001111
+MASK_XSPEED = %11001100
+MASK_YSPEED = %00110011
 
 balls.arraySize = $0B ; Constant
 
@@ -646,7 +650,7 @@ readInput: subroutine
 ; end of readInput()
 ;-------------------------------------------------------------------------------
 	
-;-------------------------------------------------------------------------------	
+;-------------------------------------------------------------------------------
 ; doPlayers()
 ;  Mid-Level Function
 ;
@@ -884,7 +888,7 @@ delayVariable:
 ; A = 0
 .outerLoop:
 	LIS  0                   ; 099a 70	
-; A--	
+; A++
 .innerLoop:
 	INC                      ; 099b 1f
 	BNZ  .innerLoop          ; 099c 94 fe
@@ -897,36 +901,45 @@ delayVariable:
 ; end of delayByTable() and delayVariable()
 ;-------------------------------------------------------------------------------
 
-;----------------------------
-; save ball function
-;  saves the temp xpos, ypos, and velocity of a ball to their arrays
-; Args
-saveBall.velocity = $0
+;-------------------------------------------------------------------------------
+; saveBall(ball, speed, xpos, ypos)
+;  Leaf Function
+;
+; Given the ball number, speed, x position, and y position in the input
+;  arguements, this function saves those ball parameters into the appropriate
+;  arrays in the scratchpad. This function is useful because the speed array is
+;  bitpacked.
+
+; == Arguments ==
+saveBall.speed = $0
 saveBall.xpos = $1
 saveBall.ypos = $2
-; Local
-saveBall.mask = $3
+; main.curBall = $B
 
-saveBall:          
-	; xpos[b] = r1
+saveBall: subroutine
+
+; == Local ==
+.speedMask = $3
+
+; xpos[curBall] = saveBall.xpos
 	LI   balls.xpos          ; 09a2 20 10
 	AS   main.curBall        ; 09a4 cb
 	LR   IS,A                ; 09a5 0b
 	LR   A,saveBall.xpos     ; 09a6 41
 	LR   (IS),A              ; 09a7 5c
 	
-	; ypos[b] = r2
+; ypos[curBall] = saveBall.xpos
 	LR   A,IS                ; 09a8 0a
 	AI   balls.arraySize     ; 09a9 24 0b
 	LR   IS,A                ; 09ab 0b
 	LR   A,saveBall.ypos     ; 09ac 42
 	LR   (IS),A              ; 09ad 5c
 	
-	; calculate index and bitmask for the bitpacked velocity array
-	; isar = velocity array + curBall/2
+; Calculate index and bitmask for the bitpacked velocity array
+	; ISAR = balls.speed + curBall/2
 	LR   A, main.curBall     ; 09ae 4b
 	SR   1                   ; 09af 12
-	AI   balls.velocity      ; 09b0 24 26
+	AI   balls.speed         ; 09b0 24 26
 	LR   IS,A                ; 09b2 0b
 	
 	; if curBall is even
@@ -935,96 +948,106 @@ saveBall:
 	;  bitmask = %11110000
 	LIS  $1                  ; 09b3 71
 	NS   main.curBall        ; 09b4 fb
-	LIS  %00001111           ; 09b5 7f
-	BNZ  A09b9              ; 09b6 94 02
+	LIS  MASK_SPEED          ; 09b5 7f
+	BNZ  .setSpeedMask       ; 09b6 94 02
 	COM                      ; 09b8 18
-A09b9:          
-	LR   saveBall.mask,A     ; 09b9 53
+.setSpeedMask:          
+	LR   .speedMask,A        ; 09b9 53
 
-	; clear curBall's bitfield from the velocity byte
+; Set curBall speed bitfield
+	; Clear curBall's bitfield from the velocity[curBall/2]
 	COM                      ; 09ba 18
 	NS   (IS)                ; 09bb fc
 	LR   (IS),A              ; 09bc 5c
-	; extract the velocity bitfield from the input argument
-	LR   A,saveBall.velocity ; 09bd 40
-	NS   saveBall.mask       ; 09be f3
-	; merge the bitfields
+
+	; Extract the appropriate speed bitfield from the input argument
+	LR   A,saveBall.speed    ; 09bd 40
+	NS   .speedMask          ; 09be f3
+
+	; Merge the bitfields and save the result
 	AS   (IS)                ; 09bf cc
 	LR   (IS),A              ; 09c0 5c
 
-	; exit
+	; Return
 	POP                      ; 09c1 1c
-; end save ball function
-;----------------------------
+; end saveBall()
+;-------------------------------------------------------------------------------
 
-;----------------------------
-; Spawn ball
-; mid-level function
-; Args
+;-------------------------------------------------------------------------------
+; spawnBall(curBall)
+;  Mid-Level Function
+;
+; TODO: Write some stuff here, do some clean-up
 
-; Locals
+; == Arguments ==
 spawn.velocity = $0
 spawn.xpos = $1
 spawn.ypos = $2
 
-; Constants
-spawn.xmin = $10
-spawn.xmax = $57
-spawn.ymin = $10
-spawn.ymax = $37
-
-spawn.playerY = $23
-spawn.playerX1 = $33
-spawn.playerX2 = $3A
 ; Returns
 ; None (TODO: verify)
 
-spawn:
+spawnBall: subroutine
 	LR   K,P                 ; 09c2 08
-spawn.reroll:          
-	; keep rerolling RNG until it gets an inbounds x and y position
+
+; == Constants ==
+.XMIN = $10
+.XMAX = $57
+.YMIN = $10
+.YMAX = $37
+
+.PLAYER_Y = $23
+.PLAYER1_X = $33
+.PLAYER2_X = $3A
+	
+; keep rerolling RNG until it gets an inbounds x and y position
+.reroll:
 	; xpos = rng.hi
 	PI   rand                ; 09c3 28 08 c1
+
 	LR   A, RNG.regHi        ; 09c6 46
-	CI   spawn.xmin          ; 09c7 25 10
-	BC   spawn.reroll   ; 09c9 82 f9
-	CI   spawn.xmax          ; 09cb 25 57
-	BNC  spawn.reroll   ; 09cd 92 f5
-	LR   spawn.xpos,A                ; 09cf 51
+	CI   .XMIN               ; 09c7 25 10
+	BC   .reroll             ; 09c9 82 f9
+	CI   .XMAX               ; 09cb 25 57
+	BNC  .reroll             ; 09cd 92 f5
+	LR   spawn.xpos,A        ; 09cf 51
+
 	; ypos = rng.lo
 	LR   A, RNG.regLo        ; 09d0 47
-	CI   spawn.ymin                 ; 09d1 25 10
-	BC   spawn.reroll   ; 09d3 82 ef
-	CI   spawn.ymax                 ; 09d5 25 37
-	BNC  spawn.reroll  ; 09d7 92 eb
-	LR   spawn.ypos,A                ; 09d9 52
-				; set velocity (TODO: verify)
-				; r0 = 0x55
-                LI   $55                 ; 09da 20 55
-                LR   $0,A                ; 09dc 50
+	CI   .YMIN               ; 09d1 25 10
+	BC   .reroll             ; 09d3 82 ef
+	CI   .YMAX          ; 09d5 25 37
+	BNC  .reroll             ; 09d7 92 eb
+	LR   spawn.ypos,A        ; 09d9 52
+	
+	; speed = 0x55
+	LI   $55                 ; 09da 20 55
+	LR   $0,A                ; 09dc 50
 	; use lower 2 bits of rng.hi as index to jump table
 	LIS  %00000011           ; 09dd 73
 	NS   RNG.regHi           ; 09de f6
 	; jump to (jump_table + 2*A)
-	DCI  spawn.jumpTable; 09df 2a 09 e6
+	DCI  .jumpTable          ; 09df 2a 09 e6
 	ADC                      ; 09e2 8e
 	ADC                      ; 09e3 8e
 	LR   Q,DC                ; 09e4 0e
+	; Jump!
 	LR   P0,Q                ; 09e5 0d
-; Jump table !
-spawn.jumpTable:          
-	BR   spawn.north  ; 09e6 90 07
-	BR   spawn.east  ; 09e8 90 0a
-	BR   spawn.south  ; 09ea 90 13
-	BR   spawn.west  ; 09ec 90 1c
 
-spawn.north:
+; Jump table
+.jumpTable:
+	BR   .north              ; 09e6 90 07
+	BR   .east               ; 09e8 90 0a
+	BR   .south              ; 09ea 90 13
+	BR   .west               ; 09ec 90 1c
+
+.north:
 	; ypos = 0x11
-	LI   $11                 ; 09ee 20 11
+	LI   .YMIN+1             ; 09ee 20 11
 	LR   spawn.ypos,A        ; 09f0 52
-	BR   spawn.handlePlayers ; 09f1 90 1a
+	BR   .spawnPlayers       ; 09f1 90 1a
 	
-spawn.east:          
+.east:          
 	; xpos = $58 - enemy ball size
 	; xvel = west
 	LI   %00110000           ; 09f3 20 30
@@ -1032,11 +1055,11 @@ spawn.east:
 	SR   4                   ; 09f6 14
 	COM                      ; 09f7 18
 	INC                      ; 09f8 1f
-	AI   $80 | (spawn.xmax + 1) ;$d8                 ; 09f9 24 d8
-	LR   spawn.xpos,A                ; 09fb 51
-	BR   spawn.handlePlayers ; 09fc 90 0f
+	AI   $80|(.XMAX+1)       ; 09f9 24 d8
+	LR   spawn.xpos,A        ; 09fb 51
+	BR   .spawnPlayers       ; 09fc 90 0f
 
-spawn.south:
+.south:
 	; ypos = $38 - enemy ball size
 	; yvel = north
 	LI   %00110000           ; 09fe 20 30
@@ -1044,41 +1067,41 @@ spawn.south:
 	SR   4                   ; 0a01 14
 	COM                      ; 0a02 18
 	INC                      ; 0a03 1f
-	AI   $80 | (spawn.ymax + 1) ;$b8                 ; 0a04 24 b8
-	LR   spawn.ypos,A                ; 0a06 52
-	BR   spawn.handlePlayers ; 0a07 90 04
+	AI   $80|(.YMAX+1)       ; 0a04 24 b8
+	LR   spawn.ypos,A        ; 0a06 52
+	BR   .spawnPlayers       ; 0a07 90 04
 
-spawn.west:
+.west:
 	; xpos = 0x11
-	LI   $11                 ; 0a09 20 11
-	LR   spawn.xpos,A                ; 0a0b 51
+	LI   .XMIN+1             ; 0a09 20 11
+	LR   spawn.xpos,A        ; 0a0b 51
 
-spawn.handlePlayers:          
+.spawnPlayers:          
 	; if (reg_b > 1) skip ahead
 	LR   A, main.curBall     ; 0a0c 4b
 	CI   [MAX_PLAYERS-1]     ; 0a0d 25 01
-	BNC   spawn.exit         ; 0a0f 92 0b
+	BNC   .exit              ; 0a0f 92 0b
 
 	; ypos = 0x23
-	LI   spawn.playerY               ; 0a11 20 23
-	LR   spawn.ypos,A                ; 0a13 52
+	LI   .PLAYER_Y           ; 0a11 20 23
+	LR   spawn.ypos,A        ; 0a13 52
 	; if (curBall != 0)
 	;  xpos = 0x33
 	; else xpos = 0x33 + 0x07
-	LI   spawn.playerX1                  ; 0a14 20 33
-	BNZ  spawn.setXPos                   ; 0a16 94 03
-	AI   spawn.playerX2 - spawn.playerX1 ; 0a18 24 07
-spawn.setXPos:
-	LR   spawn.xpos,A                ; 0a1a 51
+	LI   .PLAYER1_X          ; 0a14 20 33
+	BNZ  .setPlayerXPos      ; 0a16 94 03
+	AI   .PLAYER2_X-.PLAYER1_X ; 0a18 24 07
+.setPlayerXPos:
+	LR   spawn.xpos,A        ; 0a1a 51
 
-spawn.exit:
-	; Save xpos and ypos
-	PI   saveBall               ; 0a1b 28 09 a2
+.exit:
+	; Save xpos, ypos, and speed
+	PI   saveBall            ; 0a1b 28 09 a2
 	; Exit
 	LR   P,K                 ; 0a1e 09
 	POP                      ; 0a1f 1c
-; end spawn function
-;----------------------------
+; end spawnBall()
+;-------------------------------------------------------------------------------
 
 ;----------------------------
 ; draw timer
@@ -1206,7 +1229,7 @@ handleBall:
 	; ISAR = o46 + index/2
 	LR   A, main.curBall     ; 0a70 4b
 	SR   1                   ; 0a71 12
-	AI   balls.velocity      ; 0a72 24 26
+	AI   balls.speed         ; 0a72 24 26
 	LR   IS,A                ; 0a74 0b
 				
 	; if (index is odd)
@@ -1435,15 +1458,15 @@ tempThisVelocity = $5
 
 A0b0e:          
 	; copy lower nybble to upper nybble
-	LR   A,saveBall.velocity ; 0b0e 40
+	LR   A,saveBall.speed    ; 0b0e 40
 	SL   4                   ; 0b0f 15
-	AS   saveBall.velocity   ; 0b10 c0
-	LR   saveBall.velocity,A ; 0b11 50
+	AS   saveBall.speed      ; 0b10 c0
+	LR   saveBall.speed,A    ; 0b11 50
 
 	; ISAR = index of the velocity byte
 	LR   A,main.curBall      ; 0b12 4b
 	SR   1                   ; 0b13 12
-	AI   balls.velocity      ; 0b14 24 26
+	AI   balls.speed         ; 0b14 24 26
 	LR   IS,A                ; 0b16 0b
 
 	; Set the bitmask for the appropriate nybble
@@ -1468,8 +1491,8 @@ A0b1d:
 	LR   tempThisVelocity,A  ; 0b24 55
 
 	; branch ahead if y speed is zero
-	LI   %00110011       ; 0b25 20 33
-	NS   saveBall.velocity   ; 0b27 f0
+	LI   %00110011           ; 0b25 20 33
+	NS   saveBall.speed      ; 0b27 f0
 	BZ   A0b35               ; 0b28 84 0c
 
 	; mask out everything but the x speed
@@ -1481,7 +1504,7 @@ A0b1d:
 	; retain the old y speed
 	; set the new x speed to the xspeed in gameSettings
 	LI   %00110011           ; 0b2f 20 33
-	NS   saveBall.velocity   ; 0b31 f0
+	NS   saveBall.speed      ; 0b31 f0
 	AS   tempThisVelocity    ; 0b32 c5
 	NS   tempBitmask         ; 0b33 f7
 	LR   tempThisVelocity,A  ; 0b34 55
@@ -1489,7 +1512,7 @@ A0b1d:
 A0b35:
 	; branch ahead x speed is zero
 	LI   %11001100           ; 0b35 20 cc
-	NS   saveBall.velocity   ; 0b37 f0
+	NS   saveBall.speed      ; 0b37 f0
 	BZ   A0b45               ; 0b38 84 0c
 				
 	; mask out everything but the x speed
@@ -1501,7 +1524,7 @@ A0b35:
 	; retain the old x speed
 	; set the new y speed to the xspeed in gameSettings
 	LI   %11001100           ; 0b3f 20 cc
-	NS   saveBall.velocity   ; 0b41 f0
+	NS   saveBall.speed      ; 0b41 f0
 	AS   tempThisVelocity    ; 0b42 c5
 	NS   tempBitmask         ; 0b43 f7
 	LR   tempThisVelocity,A  ; 0b44 55
@@ -1513,7 +1536,7 @@ A0b45:
 
 	; Set velocity for saveBall
 	; (saveBall will determine which nybble is this ball's)
-	LR   saveBall.velocity,A ; 0b47 50
+	LR   saveBall.speed,A    ; 0b47 50
 
 	; It is finished... we can save the results
 	PI   saveBall            ; 0b48 28 09 a2
@@ -1813,7 +1836,7 @@ A0c29:
 	; get index to mainBall's velocity
 	LR   A,$0                ; 0c29 40
 	SR   1                   ; 0c2a 12
-	AI   balls.velocity      ; 0c2b 24 26
+	AI   balls.speed         ; 0c2b 24 26
 	LR   IS,A                ; 0c2d 0b
 
 	; conjure up the bitmask to extract it
@@ -2301,7 +2324,7 @@ restartGame:
 	CLR                  ; 0d8a 70
 startGame.spawnBalls:          
 	LR   main.curBall, A     ; 0d8b 5b
-	PI   spawn               ; 0d8c 28 09 c2
+	PI   spawnBall           ; 0d8c 28 09 c2
 	LR   A, main.curBall     ; 0d8f 4b
 	INC                      ; 0d90 1f
 	CI   [MAX_PLAYERS-1]     ; 0d91 25 01
@@ -2311,7 +2334,7 @@ startGame.spawnBalls:
 	SETISAR balls.count      ; 0d95 65 6e
 	LR   (IS),A              ; 0d97 5c
 	LR   main.curBall, A     ; 0d98 5b
-	PI   spawn               ; 0d99 28 09 c2
+	PI   spawnBall           ; 0d99 28 09 c2
 
 	; bit 7 of o72 is the explosion flag
 	SETISAR explosionFlag    ; 0d9c 67 6a
@@ -2408,7 +2431,7 @@ main.drawTimer:
 	LR   A,(IS)              ; 0deb 4c
 	LR   main.curBall, A     ; 0dec 5b
 	
-	PI   spawn               ; 0ded 28 09 c2
+	PI   spawnBall           ; 0ded 28 09 c2
 	
 	; ball count = delayIndex (preserve upper nybble of ball count)
 	SETISAR balls.count      ; 0df0 65 6e
