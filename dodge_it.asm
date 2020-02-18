@@ -122,6 +122,12 @@ MAX_BALLS = 11
 
 BCD_ADJUST = $66 ; This should probably be in ves.h
 
+; Sounds
+SOUND_NONE  = %00000000 ; Silence
+SOUND_1kHz  = %01000000 ; 1kHz tone
+SOUND_500Hz = %10000000 ; 500Hz tone
+SOUND_120Hz = %11000000 ; 120Hz tone
+
 ; Graphics
 gfx.attributeCol = $7d
 gfx.attributeWidth = 2
@@ -1002,9 +1008,9 @@ spawnBall: subroutine
 	
 ; keep rerolling RNG until it gets an inbounds x and y position
 .reroll:
-	; xpos = rng.hi
 	PI   rand                ; 09c3 28 08 c1
 
+	; xpos = rng.hi
 	LR   A, RNG.regHi        ; 09c6 46
 	CI   .XMIN               ; 09c7 25 10
 	BC   .reroll             ; 09c9 82 f9
@@ -1026,6 +1032,7 @@ spawnBall: subroutine
 	; use lower 2 bits of rng.hi as index to jump table
 	LIS  %00000011           ; 09dd 73
 	NS   RNG.regHi           ; 09de f6
+	
 	; jump to (jump_table + 2*A)
 	DCI  .jumpTable          ; 09df 2a 09 e6
 	ADC                      ; 09e2 8e
@@ -1050,24 +1057,24 @@ spawnBall: subroutine
 .east:          
 	; xpos = $58 - enemy ball size
 	; xvel = west
-	LI   %00110000           ; 09f3 20 30
-	NS   $a                  ; 09f5 fa
+	LI   MASK_ENEMY_SIZE     ; 09f3 20 30
+	NS   main.gameSettings   ; 09f5 fa
 	SR   4                   ; 09f6 14
 	COM                      ; 09f7 18
 	INC                      ; 09f8 1f
-	AI   $80|(.XMAX+1)       ; 09f9 24 d8
+	AI   MASK_DIRECTION|(.XMAX+1) ; 09f9 24 d8
 	LR   spawn.xpos,A        ; 09fb 51
 	BR   .spawnPlayers       ; 09fc 90 0f
 
 .south:
 	; ypos = $38 - enemy ball size
 	; yvel = north
-	LI   %00110000           ; 09fe 20 30
-	NS   $a                  ; 0a00 fa
+	LI   MASK_ENEMY_SIZE     ; 09fe 20 30
+	NS   main.gameSettings   ; 0a00 fa
 	SR   4                   ; 0a01 14
 	COM                      ; 0a02 18
 	INC                      ; 0a03 1f
-	AI   $80|(.YMAX+1)       ; 0a04 24 b8
+	AI   MASK_DIRECTION|(.YMAX+1) ; 0a04 24 b8
 	LR   spawn.ypos,A        ; 0a06 52
 	BR   .spawnPlayers       ; 0a07 90 04
 
@@ -1077,7 +1084,7 @@ spawnBall: subroutine
 	LR   spawn.xpos,A        ; 0a0b 51
 
 .spawnPlayers:          
-	; if (reg_b > 1) skip ahead
+	; if the current ball is not a player skip ahead
 	LR   A, main.curBall     ; 0a0c 4b
 	CI   [MAX_PLAYERS-1]     ; 0a0d 25 01
 	BNC   .exit              ; 0a0f 92 0b
@@ -1103,10 +1110,11 @@ spawnBall: subroutine
 ; end spawnBall()
 ;-------------------------------------------------------------------------------
 
-;----------------------------
-; draw timer
-; mid-level function
-; Args
+;-------------------------------------------------------------------------------
+; drawTimer(int* timer, xpos, ypos)
+;  Mid-Level Function
+
+; == Arguments ==
 drawTimer.xpos = 0
 drawTimer.ypos = 2 ; and color
 ; ISAR should point to the lower byte of the score
@@ -1117,7 +1125,8 @@ drawTimer.digitMask = $0F
 
 drawTimer:          
 	LR   K,P                 ; 0a20 08
-	; Update score display (ones)
+	
+; Draw ones digit
 	; Load x pos from r0 to r1
 	LR   A, drawTimer.xpos   ; 0a21 40
 	LR   draw.xpos, A        ; 0a22 51
@@ -1125,7 +1134,7 @@ drawTimer:
 	LI   drawTimer.yOffset   ; 0a23 20 0a
 	AS   drawTimer.ypos      ; 0a25 c2
 	LR   draw.ypos, A        ; 0a26 52
-	; Set glyph
+	; Set character
 	LI   drawTimer.digitMask ; 0a27 20 0f
 	NS   (IS)                ; 0a29 fc
 	LR   draw.param, A       ; 0a2a 50
@@ -1135,10 +1144,11 @@ drawTimer:
 	; Height
 	LIS  gfx.charHeight      ; 0a2d 75
 	LR   draw.height, A      ; 0a2e 55
+
 	PI   drawChar            ; 0a2f 28 08 58
 	
-	; Update score display (tens)
-	; Set glyph
+; Draw tens digit
+	; Set character
 	LR   A,(IS)-             ; 0a32 4e
 	SR   4                   ; 0a33 14
 	LR   draw.param, A       ; 0a34 50
@@ -1146,10 +1156,11 @@ drawTimer:
 	LI   drawTimer.xDelta    ; 0a35 20 fb
 	AS   draw.xpos           ; 0a37 c1
 	LR   draw.xpos, A        ; 0a38 51
+	
 	PI   drawChar            ; 0a39 28 08 58
 	
-	; Update score display (hundreds)
-	; Set glyph
+; Draw hundreds digit
+	; Set character
 	LR   A,(IS)              ; 0a3c 4c
 	NI   drawTimer.digitMask ; 0a3d 21 0f
 	LR   draw.param, A       ; 0a3f 50
@@ -1157,9 +1168,10 @@ drawTimer:
 	LI   drawTimer.xDelta    ; 0a40 20 fb
 	AS   draw.xpos           ; 0a42 c1
 	LR   draw.xpos, A        ; 0a43 51
+
 	PI   drawChar            ; 0a44 28 08 58
 	
-	; Update score display (thousands)
+; Draw thousands digit
 	; Load glyph
 	LR   A,(IS)              ; 0a47 4c
 	SR   4                   ; 0a48 14
@@ -1168,16 +1180,23 @@ drawTimer:
 	LI   drawTimer.xDelta    ; 0a4a 20 fb
 	AS   draw.xpos           ; 0a4c c1
 	LR   draw.xpos, A        ; 0a4d 51
+
 	PI   drawChar            ; 0a4e 28 08 58
+
 	; Exit
 	LR   P,K                 ; 0a51 09
 	POP                      ; 0a52 1c
-; end of draw timer function
-;----------------------------
+; end of drawTimer()
+;-------------------------------------------------------------------------------
 
 ;----------------------------
-; Ball handler
-;  handles ball movement and ball/wall collisions
+; doBall()
+;  Mid-Level Function
+;
+; handles ball movement and ball/wall collisions
+;
+; TODO: Name these labels
+
 ; Args
 ; 070 = ball sizes
 ; 071 = ball speed
@@ -1185,7 +1204,7 @@ drawTimer:
 tempBallSize = 070
 tempBallSpeed = 071
 
-handleBall:
+doBall:
 	LR   K,P                 ; 0a53 08
 
 	; load ball xpos
@@ -1205,7 +1224,7 @@ handleBall:
 	LR   $9,A                ; 0a5f 59
 
 	; Mask out the color bits
-	NI   %00111111           ; 0a60 21 3f
+	NI   MASK_YPOSITION      ; 0a60 21 3f
 	LR   draw.ypos, A        ; 0a62 52
 
 	; Load ball size
@@ -1238,7 +1257,7 @@ handleBall:
 	;  tempMask = $F0
 	LIS  $1                  ; 0a75 71
 	NS   main.curBall        ; 0a76 fb
-	LIS  %00001111           ; 0a77 7f
+	LIS  MASK_SPEED          ; 0a77 7f
 	BNZ  A0a7b               ; 0a78 94 02
 	COM                      ; 0a7a 18
 A0a7b:          
@@ -1350,11 +1369,11 @@ A0aa7:
 	LR   A,tempRightBound    ; 0ab7 44
 	COM                      ; 0ab8 18
 	INC                      ; 0ab9 1f
-	AI   $80                 ; 0aba 24 80
+	AI   MASK_DIRECTION      ; 0aba 24 80
 	LR   draw.xpos,A         ; 0abc 51
 	
 	; Play sound for hitting wall
-	LI   $40                 ; 0abd 20 40
+	LI   SOUND_1kHz          ; 0abd 20 40
 	LR   playSound.sound,A   ; 0abf 53
 	PI   playSound           ; 0ac0 28 0c c8
 
@@ -1371,7 +1390,7 @@ A0ac3:
 A0acb:
 	; mask out the directional bit
 	LR   A,draw.xpos         ; 0acb 41
-	NI   %01111111           ; 0acc 21 7f
+	NI   MASK_XPOSITION      ; 0acc 21 7f
 	
 	; branch ahead if(leftBound < xpos)
 	COM                      ; 0ace 18
@@ -1385,7 +1404,7 @@ A0acb:
 	LR   draw.xpos,A         ; 0ad6 51
 	
 	; Play sound for hitting wall
-	LI   $40                 ; 0ad7 20 40
+	LI   SOUND_1kHz          ; 0ad7 20 40
 	LR   playSound.sound,A   ; 0ad9 53
 	PI   playSound           ; 0ada 28 0c c8
 	
@@ -1399,7 +1418,7 @@ A0adf:
 	AS   draw.ypos           ; 0ae0 c2
 	BM   A0afb               ; 0ae1 91 19
 	; apply bitmask
-	NI   %00111111           ; 0ae3 21 3f
+	NI   MASK_YPOSITION      ; 0ae3 21 3f
 	; branch if ypos + lowerBound < 256 or 0 or whatever
 	AS   tempLowerBound      ; 0ae5 c5
 	BNC   A0b0e              ; 0ae6 92 27
@@ -1413,7 +1432,7 @@ A0adf:
 	LR   draw.ypos,A         ; 0aed 52
 	
 	; Play sound for hitting wall
-	LI   $40                 ; 0aee 20 40
+	LI   SOUND_1kHz          ; 0aee 20 40
 	LR   playSound.sound,A   ; 0af0 53
 	PI   playSound           ; 0af1 28 0c c8
 				
@@ -1443,7 +1462,7 @@ A0afb:
 	LR   draw.ypos,A         ; 0b05 52
 
 	; Play sound for hitting wall	
-	LI   $40                 ; 0b06 20 40
+	LI   SOUND_1kHz          ; 0b06 20 40
 	LR   playSound.sound,A   ; 0b08 53
 	PI   playSound           ; 0b09 28 0c c8
 	
@@ -1573,16 +1592,16 @@ A0b55:
 	SETISAR explosionFlag    ; 0b63 67 6a
 	CLR                      ; 0b65 70
 	AS   (IS)                ; 0b66 cc
-	BM   handleBall.return   ; 0b67 91 04
+	BM   doBall.return   ; 0b67 91 04
 	
 	; Redraw ball
 	PI   drawBox               ; 0b69 28 08 62
 
 ballCollision.return: ; The next function uses this to return as well
-handleBall.return:
+doBall.return:
 	LR   P,K                 ; 0b6c 09
 	POP                      ; 0b6d 1c
-;
+; end doBall()
 ;----------------------------
 
 ;----------------------------
@@ -1778,7 +1797,7 @@ A0be8:
 
 A0bf8:
 	; Play sound
-	LI   $80                 ; 0bf8 20 80
+	LI   SOUND_500Hz         ; 0bf8 20 80
 	LR   playSound.sound,A   ; 0bfa 53
 	PI   playSound           ; 0bfb 28 0c c8
 	
@@ -1918,8 +1937,9 @@ A0c59:
 ;  r6 - via RNG call
 ;  r7 - via RNG call
 ;  ISAR[x] to ISAR[x+2]
-setBounds:
+setBounds: subroutine 
 	LR   K,P                 ; 0c5f 08
+
 A0c60: ; Reroll RNG until r6 is non-zero
 	PI   rand                   ; 0c60 28 08 c1
 	CLR                  ; 0c63 70
@@ -1957,8 +1977,8 @@ A0c73:
 	; Set enemy's right or bottom boundary
 	; ISAR++ = ((reg_a & 0x30) >> 4) + r4
 	; Get enemy ball size
-	LI   $30                 ; 0c7c 20 30
-	NS   $a                  ; 0c7e fa
+	LI   MASK_ENEMY_SIZE     ; 0c7c 20 30
+	NS   main.gameSettings   ; 0c7e fa
 	SR   4                   ; 0c7f 14
 	; Add it to r4
 	AS   $4                  ; 0c80 c4
@@ -1967,8 +1987,8 @@ A0c73:
 	; Set players's right or bottom boundary
 	; ISAR++ = ((reg_a & 0xC0) >> 6) + r4
 	; Get the player's ball size
-	LI   $c0                 ; 0c82 20 c0
-	NS   $a                  ; 0c84 fa
+	LI   MASK_PLAYER_SIZE    ; 0c82 20 c0
+	NS   main.gameSettings   ; 0c84 fa
 	SR   4                   ; 0c85 14
 	SR   1                   ; 0c86 12
 	SR   1                   ; 0c87 12
@@ -1981,6 +2001,7 @@ A0c73:
 	LR   A,$6                ; 0c8a 46
 	AS   $2                  ; 0c8b c2
 	LR   (IS)+,A             ; 0c8c 5d
+
 	LR   P,K                 ; 0c8d 09
 	POP                      ; 0c8e 1c
 ; end of set bounds function
@@ -2004,13 +2025,13 @@ flash:
 	LI   flash.length        ; 0c90 20 25
 	LR   flash.timer, A      ; 0c92 59
 
-	; Set flash color value depending on value of o71 (who died?)
+	; Set flash color/sound value depending on value of o71 (who died?)
 	SETISAR 071              ; 0c93 67 69
 	LIS  $1                  ; 0c95 71
 	NS   (IS)-               ; 0c96 fe
-	LI   $80                 ; 0c97 20 80
-	BZ   A0c9d             ; 0c99 84 03
-	LI   $c0                 ; 0c9b 20 c0
+	LI   SOUND_500Hz         ; 0c97 20 80
+	BZ   A0c9d               ; 0c99 84 03
+	LI   SOUND_120Hz         ; 0c9b 20 c0
 A0c9d:          
 	LR   (IS), A             ; 0c9d 5c
 	LR   draw.ypos, A        ; 0c9e 52
@@ -2459,7 +2480,7 @@ main.ballLoop:
 	NS   main.gameSettings   ; 0e06 fa
 	LR   (IS),A              ; 0e07 5c
 
-	PI   handleBall          ; 0e08 28 0a 53
+	PI   doBall          ; 0e08 28 0a 53
 	PI   ballCollision       ; 0e0b 28 0b 6e
 	
 	; if we're not dealing with a player ball, then move on to the next ball
@@ -2489,7 +2510,7 @@ main.ballLoop:
 	; Handle player 1
 	LI   0                   ; 0e26 20 00
 	LR   main.curBall,A      ; 0e28 5b
-	PI   handleBall          ; 0e29 28 0a 53
+	PI   doBall          ; 0e29 28 0a 53
 	
 	; Check if were doing 2 player mode
 	SETISAR gameMode         ; 0e2c 67 6d
@@ -2498,7 +2519,7 @@ main.ballLoop:
 	BZ   main.checkExplosion ; 0e30 84 05	
 	; If so handle player 2
 	LR   main.curBall,A      ; 0e32 5b
-	PI   handleBall          ; 0e33 28 0a 53
+	PI   doBall          ; 0e33 28 0a 53
 
 main.checkExplosion:
 	; Loop back to beginning if explosion flag isn't set
