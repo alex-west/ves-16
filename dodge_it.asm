@@ -134,8 +134,8 @@ gfx.attributeWidth = 2
 gfx.screenWidth = $80
 gfx.screenHeight = $40
 
-gfx.G = $A
-gfx.Qmark = $B
+CHAR_G = $A
+CHAR_QMARK = $B
 
 gfx.charWidth = $4
 gfx.charHeight = $5
@@ -145,7 +145,7 @@ gfx.charHeight = $5
 	org $0800
 
 CartridgeHeader: db $55, $2b
-CartridgeEntry:  JMP initRoutine
+CartridgeEntry:  JMP init
 
 ;-------------------------------------------------------------------------------
 ; Graphics data
@@ -983,25 +983,36 @@ saveBall: subroutine
 ; spawnBall(curBall)
 ;  Mid-Level Function
 ;
-; TODO: Write some stuff here, do some clean-up
+; This function spawns a single enemy or player ball.
+;
+; Enemy balls are given a random position in the playfield and a random 
+;  direction, and then clamped to one of the four walls, with their direction
+;  being set away from the wall. They are also given a non-random starting speed
+;  of 1 and 1 on each axis.
+; 
+; Player balls are spawned in hardcoded positions in the middle of the court.
 
 ; == Arguments ==
-spawn.velocity = $0
-spawn.xpos = $1
-spawn.ypos = $2
+; main.curBall = $b
 
-; Returns
-; None (TODO: verify)
+; == Returns ==
+; None
 
+; == Entry Point ==
 spawnBall: subroutine
 	LR   K,P                 ; 09c2 08
 
-; == Constants ==
+; == Local Variables ==
+.speed = $0
+.xpos = $1
+.ypos = $2
+
+; == Local Constants ==
 .XMIN = $10
 .XMAX = $57
 .YMIN = $10
 .YMAX = $37
-
+.SPEED = %01010101
 .PLAYER_Y = $23
 .PLAYER1_X = $33
 .PLAYER2_X = $3A
@@ -1010,26 +1021,31 @@ spawnBall: subroutine
 .reroll:
 	PI   rand                ; 09c3 28 08 c1
 
-	; xpos = rng.hi
+; xpos = rng.hi
 	LR   A, RNG.regHi        ; 09c6 46
 	CI   .XMIN               ; 09c7 25 10
 	BC   .reroll             ; 09c9 82 f9
 	CI   .XMAX               ; 09cb 25 57
 	BNC  .reroll             ; 09cd 92 f5
-	LR   spawn.xpos,A        ; 09cf 51
 
-	; ypos = rng.lo
+	LR   .xpos,A             ; 09cf 51
+
+; ypos = rng.lo
 	LR   A, RNG.regLo        ; 09d0 47
 	CI   .YMIN               ; 09d1 25 10
 	BC   .reroll             ; 09d3 82 ef
-	CI   .YMAX          ; 09d5 25 37
+	CI   .YMAX               ; 09d5 25 37
 	BNC  .reroll             ; 09d7 92 eb
-	LR   spawn.ypos,A        ; 09d9 52
+
+	LR   .ypos,A             ; 09d9 52
 	
-	; speed = 0x55
-	LI   $55                 ; 09da 20 55
-	LR   $0,A                ; 09dc 50
+; speed = 0x55
+	LI   .SPEED              ; 09da 20 55
+	LR   .speed,A            ; 09dc 50
+	
+; Spawn the ball against one of the walls
 	; use lower 2 bits of rng.hi as index to jump table
+	; This is essentially a case statement
 	LIS  %00000011           ; 09dd 73
 	NS   RNG.regHi           ; 09de f6
 	
@@ -1041,7 +1057,6 @@ spawnBall: subroutine
 	; Jump!
 	LR   P0,Q                ; 09e5 0d
 
-; Jump table
 .jumpTable:
 	BR   .north              ; 09e6 90 07
 	BR   .east               ; 09e8 90 0a
@@ -1050,61 +1065,64 @@ spawnBall: subroutine
 
 .north:
 	; ypos = 0x11
+	; ydir = sount
 	LI   .YMIN+1             ; 09ee 20 11
-	LR   spawn.ypos,A        ; 09f0 52
+	LR   .ypos,A             ; 09f0 52
 	BR   .spawnPlayers       ; 09f1 90 1a
 	
-.east:          
+.east:
 	; xpos = $58 - enemy ball size
-	; xvel = west
+	; xdir = west
 	LI   MASK_ENEMY_SIZE     ; 09f3 20 30
 	NS   main.gameSettings   ; 09f5 fa
 	SR   4                   ; 09f6 14
 	COM                      ; 09f7 18
 	INC                      ; 09f8 1f
 	AI   MASK_DIRECTION|(.XMAX+1) ; 09f9 24 d8
-	LR   spawn.xpos,A        ; 09fb 51
+	LR   .xpos,A             ; 09fb 51
 	BR   .spawnPlayers       ; 09fc 90 0f
 
 .south:
 	; ypos = $38 - enemy ball size
-	; yvel = north
+	; ydir = north
 	LI   MASK_ENEMY_SIZE     ; 09fe 20 30
 	NS   main.gameSettings   ; 0a00 fa
 	SR   4                   ; 0a01 14
 	COM                      ; 0a02 18
 	INC                      ; 0a03 1f
 	AI   MASK_DIRECTION|(.YMAX+1) ; 0a04 24 b8
-	LR   spawn.ypos,A        ; 0a06 52
+	LR   .ypos,A             ; 0a06 52
 	BR   .spawnPlayers       ; 0a07 90 04
 
 .west:
 	; xpos = 0x11
+	; xdir = east
 	LI   .XMIN+1             ; 0a09 20 11
-	LR   spawn.xpos,A        ; 0a0b 51
+	LR   .xpos,A             ; 0a0b 51
 
-.spawnPlayers:          
-	; if the current ball is not a player skip ahead
+.spawnPlayers:
+	; exit if current ball is not a player
 	LR   A, main.curBall     ; 0a0c 4b
 	CI   [MAX_PLAYERS-1]     ; 0a0d 25 01
 	BNC   .exit              ; 0a0f 92 0b
-
+	
+; Ignore all the above calculations and spawn the players
 	; ypos = 0x23
 	LI   .PLAYER_Y           ; 0a11 20 23
-	LR   spawn.ypos,A        ; 0a13 52
-	; if (curBall != 0)
+	LR   .ypos,A             ; 0a13 52
+	; if (curBall == Player 1)
 	;  xpos = 0x33
 	; else xpos = 0x33 + 0x07
 	LI   .PLAYER1_X          ; 0a14 20 33
 	BNZ  .setPlayerXPos      ; 0a16 94 03
 	AI   .PLAYER2_X-.PLAYER1_X ; 0a18 24 07
 .setPlayerXPos:
-	LR   spawn.xpos,A        ; 0a1a 51
+	LR   .xpos,A             ; 0a1a 51
 
+; Save xpos, ypos, and speed
 .exit:
-	; Save xpos, ypos, and speed
 	PI   saveBall            ; 0a1b 28 09 a2
-	; Exit
+
 	LR   P,K                 ; 0a1e 09
 	POP                      ; 0a1f 1c
 ; end spawnBall()
@@ -1113,29 +1131,34 @@ spawnBall: subroutine
 ;-------------------------------------------------------------------------------
 ; drawTimer(int* timer, xpos, ypos)
 ;  Mid-Level Function
+;
+; Draws a 4-digit number pointed to by the ISAR. The ISAR should point to the
+;  least significant byte of a big-endian word. The x and y positions specify
+;  the upper-left corner of the ones digit (not the thousands digit).
 
 ; == Arguments ==
+; timer = ISAR
 drawTimer.xpos = 0
 drawTimer.ypos = 2 ; and color
-; ISAR should point to the lower byte of the score
-; Local Constants
-drawTimer.yOffset = $0A
-drawTimer.xDelta  = <[-5]
-drawTimer.digitMask = $0F
 
 drawTimer:          
 	LR   K,P                 ; 0a20 08
+	
+; == Local Constants ==
+.Y_OFFSET = $0A
+.X_DELTA  = <[-5]
+.DIGIT_MASK = $0F
 	
 ; Draw ones digit
 	; Load x pos from r0 to r1
 	LR   A, drawTimer.xpos   ; 0a21 40
 	LR   draw.xpos, A        ; 0a22 51
 	; y pos
-	LI   drawTimer.yOffset   ; 0a23 20 0a
+	LI   .Y_OFFSET           ; 0a23 20 0a
 	AS   drawTimer.ypos      ; 0a25 c2
 	LR   draw.ypos, A        ; 0a26 52
 	; Set character
-	LI   drawTimer.digitMask ; 0a27 20 0f
+	LI   .DIGIT_MASK         ; 0a27 20 0f
 	NS   (IS)                ; 0a29 fc
 	LR   draw.param, A       ; 0a2a 50
 	; Width
@@ -1152,8 +1175,8 @@ drawTimer:
 	LR   A,(IS)-             ; 0a32 4e
 	SR   4                   ; 0a33 14
 	LR   draw.param, A       ; 0a34 50
-	; Subtract 5 from x pos
-	LI   drawTimer.xDelta    ; 0a35 20 fb
+	; xpos -= xdelta
+	LI   .X_DELTA            ; 0a35 20 fb
 	AS   draw.xpos           ; 0a37 c1
 	LR   draw.xpos, A        ; 0a38 51
 	
@@ -1162,10 +1185,10 @@ drawTimer:
 ; Draw hundreds digit
 	; Set character
 	LR   A,(IS)              ; 0a3c 4c
-	NI   drawTimer.digitMask ; 0a3d 21 0f
+	NI   .DIGIT_MASK         ; 0a3d 21 0f
 	LR   draw.param, A       ; 0a3f 50
-	; Subtract 5 from x pos
-	LI   drawTimer.xDelta    ; 0a40 20 fb
+	; xpos -= xdelta
+	LI   .X_DELTA           ; 0a40 20 fb
 	AS   draw.xpos           ; 0a42 c1
 	LR   draw.xpos, A        ; 0a43 51
 
@@ -1176,8 +1199,8 @@ drawTimer:
 	LR   A,(IS)              ; 0a47 4c
 	SR   4                   ; 0a48 14
 	LR   draw.param, A       ; 0a49 50
-	; Subtract 5 from x pos
-	LI   drawTimer.xDelta    ; 0a4a 20 fb
+	; xpos -= xdelta
+	LI   .X_DELTA            ; 0a4a 20 fb
 	AS   draw.xpos           ; 0a4c c1
 	LR   draw.xpos, A        ; 0a4d 51
 
@@ -1189,24 +1212,39 @@ drawTimer:
 ; end of drawTimer()
 ;-------------------------------------------------------------------------------
 
-;----------------------------
+;-------------------------------------------------------------------------------
 ; doBall()
 ;  Mid-Level Function
 ;
 ; handles ball movement and ball/wall collisions
 ;
-; TODO: Name these labels
+; This function:
+; - Undraws the ball
+; - Moves the ball according its velocity
+; - Checks if the ball has collided with a wall
+; - Saves the changes to xpos, ypos, and speed
+; - Redraws the ball (if the explosion flag is not set)
+;
+; TODO: There are three different registers this function uses related to speed.
+;  Clarify their names/semantics.
 
 ; Args
 ; 070 = ball sizes
 ; 071 = ball speed
 ; velocity = r3 ?
-tempBallSize = 070
-tempBallSpeed = 071
+doBall.size = 070
+doBall.speed = 071
+; main.curBall = $b
 
 doBall:
 	LR   K,P                 ; 0a53 08
 
+; == Locals ==
+.tempYpos = $9
+.speedMask = $6
+.tempSpeed = $3
+.speed = $0
+	
 	; load ball xpos
 	LI   balls.xpos          ; 0a54 20 10
 	AS   main.curBall        ; 0a56 cb
@@ -1220,15 +1258,15 @@ doBall:
 	LR   IS,A                ; 0a5d 0b
 	LR   A,(IS)              ; 0a5e 4c
 
-	; store temp y velocity in r9
-	LR   $9,A                ; 0a5f 59
+	; store temp ypos in r9
+	LR   .tempYpos,A         ; 0a5f 59
 
 	; Mask out the color bits
 	NI   MASK_YPOSITION      ; 0a60 21 3f
 	LR   draw.ypos, A        ; 0a62 52
 
 	; Load ball size
-	SETISAR tempBallSize     ; 0a63 67 68
+	SETISAR doBall.size      ; 0a63 67 68
 	LR   A,(IS)              ; 0a65 4c
 	LR   draw.width, A       ; 0a66 54
 	LR   draw.height, A      ; 0a67 55
@@ -1238,13 +1276,13 @@ doBall:
 	LR   draw.param, A       ; 0a6a 50
 
 	; Undraw ball
-	PI   drawBox               ; 0a6b 28 08 62
+	PI   drawBox             ; 0a6b 28 08 62
 
 	; reload ypos from temp
-	LR   A,$9                ; 0a6e 49
+	LR   A,.tempYpos         ; 0a6e 49
 	LR   draw.ypos, A        ; 0a6f 52
 
-	; get bitpacked velocity
+; get bitpacked velocity
 	; ISAR = o46 + index/2
 	LR   A, main.curBall     ; 0a70 4b
 	SR   1                   ; 0a71 12
@@ -1258,10 +1296,10 @@ doBall:
 	LIS  $1                  ; 0a75 71
 	NS   main.curBall        ; 0a76 fb
 	LIS  MASK_SPEED          ; 0a77 7f
-	BNZ  A0a7b               ; 0a78 94 02
+	BNZ  .setSpeedMask       ; 0a78 94 02
 	COM                      ; 0a7a 18
-A0a7b:          
-	LR   $6,A                ; 0a7b 56
+.setSpeedMask:          
+	LR   .speedMask,A        ; 0a7b 56
 	
 	; store the other nybble of the velocity byte in r0
 	; I don't think this is ever used
@@ -1270,15 +1308,17 @@ A0a7b:
 	LR   $0,A                ; 0a7e 50
 	
 	; store the nybble we're interested in in r6
-	LR   A,$6                ; 0a7f 46
+	LR   A,.speedMask        ; 0a7f 46
 	NS   (IS)                ; 0a80 fc
-	LR   $3,A                ; 0a81 53
+	LR   .tempSpeed,A        ; 0a81 53
 	; shift right by 4 bits in case it's the upper nybble
 	SR   4                   ; 0a82 14
-	BZ   A0a86               ; 0a83 84 02
-	LR   $3,A                ; 0a85 53
+	BZ   .applyVelocity      ; 0a83 84 02
+	LR   .tempSpeed,A        ; 0a85 53
 
-A0a86:
+; -- Apply x and y velocities to the ball --
+; Apply x velocity
+.applyVelocity:
 	; if(the highest bit of xpos is 0)
 	;  xpos += xvel
 	; else
@@ -1288,22 +1328,23 @@ A0a86:
 	LR   J,W                 ; 0a88 1e
 	
 	; get the xspeed from r3
-	LR   A,$3                ; 0a89 43
+	LR   A,.tempSpeed        ; 0a89 43
 	SR   1                   ; 0a8a 12
 	SR   1                   ; 0a8b 12
 	
 	; if xpos was positive, branch ahead
 	LR   W,J                 ; 0a8c 1d
-	BP   A0a91               ; 0a8d 81 03
+	BP   .addXVelocity       ; 0a8d 81 03
 	
 	; else, negate the accumulator
 	COM                      ; 0a8f 18
 	INC                      ; 0a90 1f
-A0a91:
+.addXVelocity:
 	; xpos += velocity (fron the accumulator)
 	AS   draw.xpos           ; 0a91 c1
 	LR   draw.xpos,A         ; 0a92 51
 
+; Apply y velocity
 	; if(the highest bit of ypos is 0)
 	;  ypos += yvel
 	; else
@@ -1314,25 +1355,26 @@ A0a91:
 	
 	; get the yspeed from r3
 	LIS  %00000011           ; 0a96 73
-	NS   $3                  ; 0a97 f3
+	NS   .tempSpeed          ; 0a97 f3
 	
 	; if ypos was positive, branch ahead
 	LR   W,J                 ; 0a98 1d
-	BP   A0a9d               ; 0a99 81 03
+	BP   .addYVelocity       ; 0a99 81 03
 	
 	; else, negate the accumulator
 	COM                      ; 0a9b 18
 	INC                      ; 0a9c 1f
-A0a9d:
+.addYVelocity:
 	; ypos += velocity (from the accumulator)
 	AS   draw.ypos           ; 0a9d c2
 	LR   draw.ypos,A         ; 0a9e 52
 
-; Ball/Wall collision detection
+; -- Ball/Wall collision detection --
 tempRightBound = $4
 tempLowerBound = $5
 ; tempVelocity = $0
 
+; Get right bound
 	; if (curBall <= [MAX_PLAYERS-1])
 	;  tempRightBound = bounds.rightEnemy
 	; else
@@ -1340,12 +1382,13 @@ tempLowerBound = $5
 	SETISAR bounds.rightEnemy; 0a9f 66 68
 	LR   A, main.curBall     ; 0aa1 4b
 	CI   [MAX_PLAYERS-1]     ; 0aa2 25 01
-	BNC   A0aa7              ; 0aa4 92 02
+	BNC   .setRightBound     ; 0aa4 92 02
 	SETISARL bounds.rightPlayer; 0aa6 69
-A0aa7:          
+.setRightBound:          
 	LR   A,(IS)              ; 0aa7 4c
 	LR   tempRightBound,A    ; 0aa8 54
-	
+
+; Get lower bound
 	; tempLowerBound = (previous isar reg + 3)
 	LR   A,IS                ; 0aa9 0a
 	AI   3                   ; 0aaa 24 03
@@ -1353,16 +1396,18 @@ A0aa7:
 	LR   A,(IS)              ; 0aad 4c
 	LR   tempLowerBound,A    ; 0aae 55
 
-	; Clear r0
+; -- Check collision with left and right walls --
+	; Clear .speed
 	CLR                      ; 0aaf 70
-	LR   $0,A                ; 0ab0 50
-	
+	LR   .speed,A            ; 0ab0 50
+
+; Check collision with right wall
 	; if bit 7 of velocity is set (meaning the ball is going left), branch ahead
 	AS   draw.xpos           ; 0ab1 c1
-	BM   A0acb               ; 0ab2 91 18
+	BM   .checkLeftWall      ; 0ab2 91 18
 	; if the two add and don't carry, then branch ahead
 	AS   tempRightBound      ; 0ab4 c4
-	BNC   A0adf              ; 0ab5 92 29
+	BNC   .checkVertWalls    ; 0ab5 92 29
 	
 ; We have collided with the right wall
 	; clamp position to right wall and set direction to left
@@ -1377,17 +1422,17 @@ A0aa7:
 	LR   playSound.sound,A   ; 0abf 53
 	PI   playSound           ; 0ac0 28 0c c8
 
-A0ac3:
-	; r0 = speed << 2
-	; setting x speed?
-	SETISAR tempBallSpeed    ; 0ac3 67 69
+.setXSpeed:
+	; xspeed = doBall.speed
+	SETISAR doBall.speed     ; 0ac3 67 69
 	LR   A,(IS)              ; 0ac5 4c
 	SL   1                   ; 0ac6 13
 	SL   1                   ; 0ac7 13
-	LR   $0,A                ; 0ac8 50
-	BR   A0adf               ; 0ac9 90 15
+	LR   .speed,A            ; 0ac8 50
+	BR   .checkVertWalls     ; 0ac9 90 15
 
-A0acb:
+; Check if colliding with left wall
+.checkLeftWall:
 	; mask out the directional bit
 	LR   A,draw.xpos         ; 0acb 41
 	NI   MASK_XPOSITION      ; 0acc 21 7f
@@ -1397,7 +1442,7 @@ A0acb:
 	INC                      ; 0acf 1f
 	SETISAR bounds.left      ; 0ad0 66 6a
 	AS   (IS)                ; 0ad2 cc
-	BNC   A0adf              ; 0ad3 92 0b
+	BNC   .checkVertWalls    ; 0ad3 92 0b
 	
 	; clamp position to left wall and set direction to the right
 	LR   A,(IS)              ; 0ad5 4c
@@ -1408,44 +1453,44 @@ A0acb:
 	LR   playSound.sound,A   ; 0ad9 53
 	PI   playSound           ; 0ada 28 0c c8
 	
-	BR   A0ac3               ; 0add 90 e5
-;-----
-	
-; 
-A0adf:
+	BR   .setXSpeed          ; 0add 90 e5
+
+; -- Check collision with top and bottom walls --
+.checkVertWalls:
 	CLR                      ; 0adf 70
 	; if bit 7 of the velocity is set (meaning it's going up) branch ahead
 	AS   draw.ypos           ; 0ae0 c2
-	BM   A0afb               ; 0ae1 91 19
+	BM   .checkTopWall       ; 0ae1 91 19
 	; apply bitmask
 	NI   MASK_YPOSITION      ; 0ae3 21 3f
 	; branch if ypos + lowerBound < 256 or 0 or whatever
 	AS   tempLowerBound      ; 0ae5 c5
-	BNC   A0b0e              ; 0ae6 92 27
+	BNC   .applySpeedChanges ; 0ae6 92 27
 	
 ; We have collided with the lower wall
 	; Clamp position to the lower wall and set the direction to up
 	LR   A,tempLowerBound    ; 0ae8 45
 	COM                      ; 0ae9 18
 	INC                      ; 0aea 1f
-	AI   $80                 ; 0aeb 24 80
+	AI   MASK_DIRECTION      ; 0aeb 24 80
 	LR   draw.ypos,A         ; 0aed 52
 	
 	; Play sound for hitting wall
 	LI   SOUND_1kHz          ; 0aee 20 40
 	LR   playSound.sound,A   ; 0af0 53
 	PI   playSound           ; 0af1 28 0c c8
-				
-A0af4:
-	; r0 += speed
-	; setting the y speed?
-	SETISAR 071              ; 0af4 67 69
-	LR   A,(IS)              ; 0af6 4c
-	AS   $0                  ; 0af7 c0
-	LR   $0,A                ; 0af8 50
-	BR   A0b0e            ; 0af9 90 14
 
-A0afb:
+; Set y speed
+.setYSpeed:
+	; yspeed = doBall.speed
+	SETISAR doBall.speed     ; 0af4 67 69
+	LR   A,(IS)              ; 0af6 4c
+	AS   .speed              ; 0af7 c0
+	LR   .speed,A            ; 0af8 50
+	BR   .applySpeedChanges  ; 0af9 90 14
+
+; Check if colliding with top wall
+.checkTopWall:
 	SETISARU bounds.top      ; 0afb 66 ; Whyyyyy? Why is this split like this?
 	; Apply bitmask to velocity
 	NI   %00111111           ; 0afc 21 3f
@@ -1454,7 +1499,7 @@ A0afb:
 	INC                      ; 0aff 1f
 	SETISARL bounds.top      ; 0b00 6d
 	AS   (IS)                ; 0b01 cc
-	BNC   A0b0e            ; 0b02 92 0b
+	BNC   .applySpeedChanges ; 0b02 92 0b
 	
 ; We have collided with the top wall
 	; Clamp position to top wall and set direction downwards
@@ -1466,23 +1511,23 @@ A0afb:
 	LR   playSound.sound,A   ; 0b08 53
 	PI   playSound           ; 0b09 28 0c c8
 	
-	BR   A0af4               ; 0b0c 90 e7
+	BR   .setYSpeed          ; 0b0c 90 e7
 ;-----
 
-; Applying velocity changes?
+; -- Applying velocity changes from wall bounces --
 tempBitmask = $7
-tempOtherBitmask = $6
-tempOtherVelocity = $4
+.otherBitmask = $6
+.otherSpeed = $4
 tempThisVelocity = $5
 
-A0b0e:          
+.applySpeedChanges:
 	; copy lower nybble to upper nybble
-	LR   A,saveBall.speed    ; 0b0e 40
+	LR   A,.speed            ; 0b0e 40
 	SL   4                   ; 0b0f 15
-	AS   saveBall.speed      ; 0b10 c0
-	LR   saveBall.speed,A    ; 0b11 50
+	AS   .speed              ; 0b10 c0
+	LR   .speed,A            ; 0b11 50
 
-	; ISAR = index of the velocity byte
+	; ISAR = index of the speed byte
 	LR   A,main.curBall      ; 0b12 4b
 	SR   1                   ; 0b13 12
 	AI   balls.speed         ; 0b14 24 26
@@ -1491,67 +1536,70 @@ A0b0e:
 	; Set the bitmask for the appropriate nybble
 	LIS  $1                  ; 0b17 71
 	NS   main.curBall        ; 0b18 fb
-	LIS  %00001111           ; 0b19 7f
-	BNZ  A0b1d               ; 0b1a 94 02
+	LIS  MASK_SPEED          ; 0b19 7f
+	BNZ  .setSpeedMaskAgain  ; 0b1a 94 02
 	COM                      ; 0b1c 18
-A0b1d:
+.setSpeedMaskAgain:
 	LR   tempBitmask, A      ; 0b1d 57
 
 	; Set the bitmask for the opposite nybble 
 	COM                      ; 0b1e 18
-	LR   tempOtherBitmask,A  ; 0b1f 56
+	LR   .otherBitmask,A     ; 0b1f 56
 	; save opposite nybble
 	NS   (IS)                ; 0b20 fc
-	LR   tempOtherVelocity,A ; 0b21 54
+	LR   .otherSpeed,A ; 0b21 54
 
-	; apply the bitmask to get our velocity
+	; apply the bitmask to get our speed from memory
 	LR   A,tempBitmask       ; 0b22 47
 	NS   (IS)                ; 0b23 fc
 	LR   tempThisVelocity,A  ; 0b24 55
 
+; -- Apply the wall-bounce speed changes
+; apply y axis bounce
 	; branch ahead if y speed is zero
-	LI   %00110011           ; 0b25 20 33
-	NS   saveBall.speed      ; 0b27 f0
-	BZ   A0b35               ; 0b28 84 0c
+	; (or: if we didn't collide with the top or bottom wall)
+	LI   MASK_YSPEED         ; 0b25 20 33
+	NS   .speed              ; 0b27 f0
+	BZ   .saveXAxisBounce    ; 0b28 84 0c
 
-	; mask out everything but the x speed
-	LI   %11001100           ; 0b2a 20 cc
+	; get the old x speed from memory
+	LI   MASK_XSPEED         ; 0b2a 20 cc
 	NS   tempBitmask         ; 0b2c f7
 	NS   tempThisVelocity    ; 0b2d f5
 	LR   tempThisVelocity,A  ; 0b2e 55
 	
-	; retain the old y speed
-	; set the new x speed to the xspeed in gameSettings
-	LI   %00110011           ; 0b2f 20 33
-	NS   saveBall.speed      ; 0b31 f0
+	; set the y speed to the temp y speed from the wall collision
+	LI   MASK_YSPEED         ; 0b2f 20 33
+	NS   .speed              ; 0b31 f0
 	AS   tempThisVelocity    ; 0b32 c5
 	NS   tempBitmask         ; 0b33 f7
 	LR   tempThisVelocity,A  ; 0b34 55
-				
-A0b35:
+
+; apply x axis bounce
+.saveXAxisBounce:
 	; branch ahead x speed is zero
-	LI   %11001100           ; 0b35 20 cc
-	NS   saveBall.speed      ; 0b37 f0
-	BZ   A0b45               ; 0b38 84 0c
+	; (or: if we didn't collide with the left or right wall)
+	LI   MASK_XSPEED         ; 0b35 20 cc
+	NS   .speed              ; 0b37 f0
+	BZ   .prepSaveBall       ; 0b38 84 0c
 				
-	; mask out everything but the x speed
-	LI   %00110011           ; 0b3a 20 33
+	; get old y speed from memory
+ 	LI   MASK_YSPEED         ; 0b3a 20 33
 	NS   tempBitmask         ; 0b3c f7
 	NS   tempThisVelocity    ; 0b3d f5
 	LR   tempThisVelocity,A  ; 0b3e 55
 
-	; retain the old x speed
-	; set the new y speed to the xspeed in gameSettings
-	LI   %11001100           ; 0b3f 20 cc
-	NS   saveBall.speed      ; 0b41 f0
+	; set the x speed to the temp x speed from the wall collision
+	LI   MASK_XSPEED         ; 0b3f 20 cc
+	NS   .speed              ; 0b41 f0
 	AS   tempThisVelocity    ; 0b42 c5
 	NS   tempBitmask         ; 0b43 f7
 	LR   tempThisVelocity,A  ; 0b44 55
 
-A0b45:
+.prepSaveBall:
 	; Merge the nybbles back together
 	LR   A,tempThisVelocity  ; 0b45 45
-	AS   tempOtherVelocity   ; 0b46 c4
+	AS   .otherSpeed         ; 0b46 c4
 
 	; Set velocity for saveBall
 	; (saveBall will determine which nybble is this ball's)
@@ -1560,14 +1608,18 @@ A0b45:
 	; It is finished... we can save the results
 	PI   saveBall            ; 0b48 28 09 a2
 	
-	; Redraw ball
+; Prepare to redraw ball
+	; if(curball <=1)
+	;  color = ballColors[curBall]
+	; else
+	;  color = ballColors[2]
 	DCI  ballColors          ; 0b4b 2a 08 50
 	LR   A,main.curBall      ; 0b4e 4b
 	CI   [MAX_PLAYERS-1]     ; 0b4f 25 01
-	LIS  $2                  ; 0b51 72
-	BNC   A0b55              ; 0b52 92 02
+	LIS  2                   ; 0b51 72
+	BNC   .setColor          ; 0b52 92 02
 	LR   A,main.curBall      ; 0b54 4b
-A0b55:
+.setColor:
 	ADC                      ; 0b55 8e
 	LR   A, draw.ypos        ; 0b56 42
 
@@ -1582,27 +1634,27 @@ A0b55:
 	LI   DRAW_RECT           ; 0b5b 20 80
 	LR   draw.param, A       ; 0b5d 50
 
-	; set ball width/height
-	SETISAR 070              ; 0b5e 67 68
+	; Set ball width/height
+	SETISAR doBall.size      ; 0b5e 67 68
 	LR   A,(IS)              ; 0b60 4c
 	LR   draw.width, A       ; 0b61 54
 	LR   draw.height, A      ; 0b62 55
 
-	; Do not redraw if explosion flag is set (TODO: Verify)
+	; Do not redraw if explosion flag is set
 	SETISAR explosionFlag    ; 0b63 67 6a
 	CLR                      ; 0b65 70
 	AS   (IS)                ; 0b66 cc
-	BM   doBall.return   ; 0b67 91 04
-	
+	BM   .return             ; 0b67 91 04
+
 	; Redraw ball
-	PI   drawBox               ; 0b69 28 08 62
+	PI   drawBox             ; 0b69 28 08 62
 
 ballCollision.return: ; The next function uses this to return as well
-doBall.return:
+.return:
 	LR   P,K                 ; 0b6c 09
 	POP                      ; 0b6d 1c
 ; end doBall()
-;----------------------------
+;-------------------------------------------------------------------------------
 
 ;----------------------------
 ; Ball-ball collision detection
@@ -1641,7 +1693,7 @@ ballCollision.loopA:
 	BZ   ballCollision.loopA ; 0b7f 84 f8
 
 	; Check if we're in 2-player mode
-	SETISARL gameMode                   ; 0b81 6d
+	SETISARL gameMode        ; 0b81 6d
 	LIS  $1                  ; 0b82 71
 	NS   (IS)                ; 0b83 fc
 	; If so, skip ahead
@@ -1842,7 +1894,8 @@ A0bf8:
 
 A0c20:
 	; If bit 7 of gameMode is set, we mess with the velocity
-	; TODO: Figure out if it is set elsewhere
+	; TODO: Figure out if it is set elsewhere -- It appears that explode()
+	;  clears this bit
 	SETISAR gameMode         ; 0c20 67 6d
 	CLR                      ; 0c22 70
 	AS   (IS)                ; 0c23 cc
@@ -2116,31 +2169,41 @@ playSound.exit:
 ; end playSound()
 ;-------------------------------------------------------------------------------
 
-;----------------------------	
-; Init Game
-initRoutine:
+;-------------------------------------------------------------------------------
+; init()
+;  Top-Level Procedure
+;
+; For simplicity's sake, this disassembly will divide the top-level thread into
+;  separate functions, even though they are not callable procedures.
+;
+; 
+
+init:
 	SETISAR RNG.seedLo       ; 0cd0 67 6f
 	; Enable data from controllers ?
 	LI   $40                 ; 0cd2 20 40
 	OUTS 0                   ; 0cd4 b0
+	
 	; Seed RNG from uninitialized ports
 	INS  4                   ; 0cd5 a4
 	LR   (IS)-,A             ; 0cd6 5e
 	INS  5                   ; 0cd7 a5
 	LR   (IS)-,A             ; 0cd8 5e
-	; clear o73
+	
+	; clear o73 (TODO: Figure out what it's for.)
 	LISL 3                   ; 0cd9 6b
-	CLR                  ; 0cda 70
+	CLR                      ; 0cda 70
 	LR   (IS),A              ; 0cdb 5c
+	
 	; Clear port
 	OUTS 0                   ; 0cdc b0
 
 ; Clear screen
 	; Set properties
-	LI   DRAW_RECT            ; 0cdd 20 80
+	LI   DRAW_RECT           ; 0cdd 20 80
 	LR   draw.param, A       ; 0cdf 50
 	; Set x and y pos
-	CLR                  ; 0ce0 70
+	CLR                      ; 0ce0 70
 	LR   draw.xpos, A        ; 0ce1 51
 	LR   draw.ypos, A        ; 0ce2 52
 	; width = screen width
@@ -2167,13 +2230,13 @@ initRoutine:
 
 ; Draw the "G?" screen
 	; glyph = 'G'
-	LIS  gfx.G               ; 0cf8 7a
+	LIS  CHAR_G              ; 0cf8 7a
 	LR   draw.param, A       ; 0cf9 50
 	; xpos
 	LI   $30                 ; 0cfa 20 30
 	LR   draw.xpos, A        ; 0cfc 51
 	; ypos and color
-	LI   $9b                 ; 0cfd 20 9b
+	LI   $80|$1B             ; 0cfd 20 9b
 	LR   draw.ypos, A        ; 0cff 52
 	; width
 	LIS  gfx.charWidth       ; 0d00 74
@@ -2184,7 +2247,7 @@ initRoutine:
 	PI   drawChar            ; 0d04 28 08 58
 	
 	; glyph = '?'
-	LIS  gfx.Qmark                  ; 0d07 7b
+	LIS  CHAR_QMARK          ; 0d07 7b
 	LR   draw.param, A       ; 0d08 50
 	; x pos
 	LI   $35                 ; 0d09 20 35
@@ -2203,7 +2266,11 @@ initRoutine:
 	LM                       ; 0d16 16
 	LR   (IS),A              ; 0d17 5c
 
-; Shuffle gametype
+	; Continue on to next procedure
+	
+;-------------------------------------------------------------------------------
+; shuffleGametype()
+;  Top-Level Procedure
 shuffleGameType:          
 	SETISAR gameMode                     ; 0d18 67 6d
 	; preserve the player and game speed bits of gameMode
@@ -2275,7 +2342,13 @@ shuffleGameTypeReroll:
 	LI   $38                 ; 0d4e 20 38
 	LR   $1,A                ; 0d50 51
 	PI   setBounds               ; 0d51 28 0c 5f
+	
+	; Continue on to next procedure
 
+;-------------------------------------------------------------------------------
+; restartGame()
+;  Top-Level Procedure
+;
 restartGame:          
 	; Draw playfield
 	; Set rendering properties
@@ -2362,9 +2435,12 @@ startGame.spawnBalls:
 	CLR                      ; 0d9e 70
 	LR   (IS),A              ; 0d9f 5c
 
-;----------------------------
-; Beginning of MAIN LOOP 
-mainLoop:
+	; Continue on to next procedure
+
+;-------------------------------------------------------------------------------
+; mainLoop()
+;  Top-Level Procedure
+mainLoop: subroutine
 	; Clear sound
 	CLR                      ; 0da0 70
 	OUTS 5                   ; 0da1 b5
@@ -2468,19 +2544,19 @@ main.ballLoopInit:
 	LR   main.curBall, A     ; 0dfc 5b
 				
 main.ballLoop:          
-	; o70 = enemy ball size
-	SETISAR 070              ; 0dfd 67 68
+	; doBall.size = enemy ball size
+	SETISAR doBall.size      ; 0dfd 67 68
 	LI   MASK_ENEMY_SIZE     ; 0dff 20 30
 	NS   main.gameSettings   ; 0e01 fa
 	SR   4                   ; 0e02 14
 	LR   (IS)+,A             ; 0e03 5d
 	
-	; o71 = enemy speed 
+	; doBall.speed = enemy speed 
 	LI   MASK_ENEMY_SPEED    ; 0e04 20 03
 	NS   main.gameSettings   ; 0e06 fa
 	LR   (IS),A              ; 0e07 5c
 
-	PI   doBall          ; 0e08 28 0a 53
+	PI   doBall              ; 0e08 28 0a 53
 	PI   ballCollision       ; 0e0b 28 0b 6e
 	
 	; if we're not dealing with a player ball, then move on to the next ball
@@ -2491,8 +2567,8 @@ main.ballLoop:
 
 	PI   doPlayers           ; 0e14 28 09 24
 
-	; o70 = player ball size
-	SETISAR 070              ; 0e17 67 68
+	; doBall.size = player ball size
+	SETISAR doBall.size      ; 0e17 67 68
 	LI   MASK_PLAYER_SIZE    ; 0e19 20 c0
 	NS   main.gameSettings   ; 0e1b fa
 	SR   4                   ; 0e1c 14
@@ -2500,7 +2576,7 @@ main.ballLoop:
 	SR   1                   ; 0e1e 12
 	LR   (IS)+,A             ; 0e1f 5d
 	
-	; o71 = player speed
+	; doBall.size = player speed
 	LI   MASK_PLAYER_SPEED   ; 0e20 20 0c
 	NS   main.gameSettings   ; 0e22 fa
 	SR   1                   ; 0e23 12
@@ -2535,15 +2611,16 @@ main.checkExplosion:
 
 main.end:          
 	JMP  mainLoop               ; 0e41 29 0d a0
-; end of main loop
-;----------------------------
+; end of mainLoop()
+;-------------------------------------------------------------------------------
 
 ;----------------------------
-; Game Over / Death Animation
-; top level procedure
+; gameOver()
+;  Top-Level Procedure
 gameOver.spiralRadius = 046
 
-gameOver:
+gameOver: subroutine
+
 	; ypos = $24, color = $80
 	LI   $80 | $24 ;$a4                 ; 0e44 20 a4
 	LR   draw.ypos, A        ; 0e46 52
@@ -2551,7 +2628,8 @@ gameOver:
 	SETISAR gameOver.spiralRadius ; 0e47 64 6e
 	LI   $14                 ; 0e49 20 14
 	LR   (IS),A              ; 0e4b 5c
-gameOver.spiralLoop:
+
+.spiralLoop:
 	PI   drawSpiral          ; 0e4c 28 0f 0a
 	; spiralRadius--
 	SETISAR gameOver.spiralRadius ; 0e4f 64 6e
@@ -2564,16 +2642,16 @@ gameOver.spiralLoop:
 	; ypos = $24
 	LR   A, draw.ypos        ; 0e53 42
 	AI   $40                 ; 0e54 24 40
-	BNC   gameOver.label1            ; 0e56 92 03
+	BNC  .setColor           ; 0e56 92 03
 	AI   $40                 ; 0e58 24 40
-gameOver.label1:
+.setColor:
 	NI   $c0                 ; 0e5a 21 c0
 	AI   $24                 ; 0e5c 24 24
 	LR   draw.ypos,A         ; 0e5e 52
 	; restore flags
 	; loop back if o46 != 0
 	LR   W,J                 ; 0e5f 1d
-	BNZ  gameOver.spiralLoop ; 0e60 94 eb
+	BNZ  .spiralLoop         ; 0e60 94 eb
 
 	; delayVariable($0)
 	CLR                  ; 0e62 70
@@ -2756,7 +2834,7 @@ gameOver.2pHiScoreHiByte:
 	; Read controllers
 	PI   readInput           ; 0efb 28 09 10
 
-	; If neither player is touching anything, shuffle gametype
+	; If neither player is pushing the controller, shuffle gametype
 	; Player 1
 	SETISARL input.p1        ; 0efe 68
 	CLR                      ; 0eff 70
@@ -2779,9 +2857,10 @@ gameOver.2pHiScoreHiByte:
 ; mid-level function
 ; 
 ; r1 - X pos
-; r2 - Y pos
+; NOT r2 - Y pos (this is set in this function)
 ; r4 - Width
 ; r5 - Height
+drawSpiral: subroutine
 
 ; Locals
 ; Note: These take the place of variables used while the game is being played!
@@ -2789,9 +2868,8 @@ spiral.hdiameter = 024 ; o24 - horizontal diameter
 spiral.hcount = 025    ; o25 - horizontal counter
 spiral.vcount = 026    ; o26 - vertical counter
 spiral.vdiameter = 027 ; o27 - vertical diameter
-spiral.lapcount = 036  ; o36 - spiral lap counter
+spiral.lapCount = 036  ; o36 - spiral lap counter
 
-drawSpiral:
 	LR   K,P                 ; 0f0a 08
 	; Set properties to draw a rect
 	LI   DRAW_RECT           ; 0f0b 20 80
@@ -2818,7 +2896,7 @@ drawSpiral:
 	; spiral lap counter = spiral radius
 	SETISARU gameOver.spiralRadius ; 0f1a 64
 	LR   A,(IS)              ; 0f1b 4c ; is = o46
-	SETISARU spiral.lapcount ; 0f1c 63
+	SETISARU spiral.lapCount ; 0f1c 63
 	LR   (IS),A              ; 0f1d 5c ; is = o36
 	
 	; set ISAR
@@ -2912,7 +2990,7 @@ drawSpiral.plotLeft: ; plot left
 	LR   (IS)+,A             ; 0f5d 5d ;is=o25
 									   ;is=o26
 	; spiral count-- (o36)
-	SETISARU spiral.lapcount ; 0f5e 63
+	SETISARU spiral.lapCount ; 0f5e 63
 	DS   (IS)                ; 0f5f 3c 
 	SETISARU spiral.vcount   ; 0f60 62
 	; save flags (to be used above shortly after drawSpiral.plotUp)
