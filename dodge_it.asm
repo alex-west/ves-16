@@ -63,7 +63,7 @@ balls.ypos = 033 ; Array
 balls.speed = 046 ; Bitpacked array
 
 MASK_DIRECTION = %10000000
-MASK_XPOSITION = %01111111 ; Note: this gets used on ypos sometimes
+MASK_POSITION  = %01111111
 MASK_YPOSITION = %00111111
 
 MASK_SPEED  = %00001111
@@ -739,7 +739,7 @@ doPlayers: subroutine
 
 	; If so, set x direction to right
 	LR   A,.xpos             ; 094c 41
-	NI   MASK_XPOSITION      ; 094d 21 7f
+	NI   MASK_POSITION      ; 094d 21 7f
 	BR   .setXspeed          ; 094f 90 08
 
 ; Check if left is pressed
@@ -1427,7 +1427,7 @@ doBall: subroutine
 .checkLeftWall:
 	; Mask out the directional bit
 	LR   A,.xpos             ; 0acb 41
-	NI   MASK_XPOSITION      ; 0acc 21 7f
+	NI   MASK_POSITION      ; 0acc 21 7f
 	
 	; branch ahead if(leftBound < xpos)
 	COM                      ; 0ace 18
@@ -1613,7 +1613,7 @@ doBall: subroutine
 	LR   A, draw.ypos        ; 0b56 42
 
 	; Mask out the direction
-	NI   MASK_XPOSITION      ; 0b57 21 7f
+	NI   MASK_POSITION      ; 0b57 21 7f
 
 	; OR in the color
 	OM                       ; 0b59 8b
@@ -1638,7 +1638,7 @@ doBall: subroutine
 	; Redraw ball
 	PI   drawBox             ; 0b69 28 08 62
 
-ballCollision.return: ; The next function uses this to return as well
+collision.return: ; The next function uses this to return as well
 .return:
 	LR   P,K                 ; 0b6c 09
 	POP                      ; 0b6d 1c
@@ -1649,6 +1649,18 @@ ballCollision.return: ; The next function uses this to return as well
 ; collision()
 ;
 ; Performs ball-ball collision detection
+;
+; This function:
+; - Sets up the loop
+; - Tests collision along the x axis
+; - Tests collision along the y axis
+; - Jumps to game over
+; - Plays bumping sound
+; - Fiddles with x direction
+; - Fiddles with velocity
+; - Fiddles with y direction
+;
+; That's a lot of stuff.
 
 ; == Arguments ==
 ; main.curBall = $b
@@ -1659,7 +1671,7 @@ testBall = 071
 mainBall.xpos = $1
 mainBall.ypos = $2
 
-ballCollision: subroutine
+collision: subroutine
 	LR   K,P                 ; 0b6e 08
 	; setting up the collision loop counter
 	; testBall = (delayIndex & 0x0F) + 1
@@ -1670,18 +1682,18 @@ ballCollision: subroutine
 	INC                      ; 0b76 1f
 	LR   (IS),A              ; 0b77 5c
 
-ballCollision.loopA:
+.testBallLoop:
 	; loop_counter--
 	SETISAR testBall         ; 0b78 67 69
 	DS   (IS)                ; 0b7a 3c
 
-	; if(loop_counter < 0), return
-	BM   ballCollision.return; 0b7b 91 f0
+	; if(testBall < 0), return
+	BM   collision.return; 0b7b 91 f0
 
-	; if(loop_counter == current_ball), skip and go to next ball
+	; if(testBall == curBall), skip and go to next ball
 	LR   A,(IS)              ; 0b7d 4c
 	XS   main.curBall        ; 0b7e eb
-	BZ   ballCollision.loopA ; 0b7f 84 f8
+	BZ   .testBallLoop       ; 0b7f 84 f8
 
 	; Check if we're in 2-player mode
 	SETISARL gameMode        ; 0b81 6d
@@ -1695,148 +1707,157 @@ ballCollision.loopA:
 	LR   A,(IS)              ; 0b87 4c
 	CI   [MAX_PLAYERS-1]     ; 0b88 25 01
 	; If so, skip the current ball
-	BZ   ballCollision.loopA ; 0b8a 84 ed
+	BZ   .testBallLoop ; 0b8a 84 ed
 
 A0b8c:
-	; r1 = xpos[current_ball]
+	; r1 = xpos[curBall]
 	LI   balls.xpos          ; 0b8c 20 10
 	AS   main.curBall        ; 0b8e cb
 	LR   IS,A                ; 0b8f 0b
 	LR   A,(IS)              ; 0b90 4c
-	; mask out the upper bit (direction of xvel)
-	NI   %01111111           ; 0b91 21 7f
+	; Mask out the direction
+	NI   MASK_POSITION       ; 0b91 21 7f
 	LR   mainBall.xpos,A     ; 0b93 51
 	
-	; r2 = ypos[current_ball]
+	; r2 = ypos[curBall]
 	LR   A,IS                ; 0b94 0a
 	AI   balls.arraySize     ; 0b95 24 0b
 	LR   IS,A                ; 0b97 0b
 	LR   A,(IS)              ; 0b98 4c
-	; mask out the upper bits (direction of yvel?)
-	NI   %00111111           ; 0b99 21 3f
+	; Mask out the direction
+	NI   MASK_YPOSITION      ; 0b99 21 3f
 	LR   mainBall.ypos,A     ; 0b9b 52
 	
-; Test collision along x axis
+; -- Test collision along x axis -----------------------------------------------
+.xDelta = $1
+
 	; mainBall.xpos-testBall.xpos
 	SETISAR testBall         ; 0b9c 67 69
 	LI   balls.xpos          ; 0b9e 20 10
 	AS   (IS)                ; 0ba0 cc
 	LR   IS,A                ; 0ba1 0b
 	LR   A,(IS)              ; 0ba2 4c
-	NI   %01111111           ; 0ba3 21 7f
+	NI   MASK_POSITION       ; 0ba3 21 7f
 	COM                      ; 0ba5 18
 	INC                      ; 0ba6 1f
 	AS   mainBall.xpos       ; 0ba7 c1
 	
-	; save test results
+	; Save flags
 	LR   J,W                 ; 0ba8 1e
-	; keep results if (mainBall.xpos >= testBall.xpos)
-	BP   A0bad             ; 0ba9 81 03	
-	; otherwise negate the results
+	; Keep results if (mainBall.xpos >= testBall.xpos)
+	BP   .saveXdelta         ; 0ba9 81 03	
+	; Otherwise negate the results
 	COM                      ; 0bab 18
 	INC                      ; 0bac 1f
 	
-A0bad:
-	; save result from test in r1
-	LR   $1,A                ; 0bad 51
+.saveXdelta:
+	; abs(mainBall.x - testBall.x)
+	LR   .xDelta,A           ; 0bad 51
 	
 	; branch ahead if testBall is not a player ball
 	LR   A,IS                ; 0bae 0a
 	CI   [balls.xpos+MAX_PLAYERS-1] ; 0baf 25 11
-	BNC   A0bbd              ; 0bb1 92 0b
-	
-	; reuse test results from earlier
+	BNC  .useEnemySize       ; 0bb1 92 0b
+
 	; branch ahead if mainBall.xpos < testBall.xpos
-	LR   W,J                 ; 0bb3 1d
-	BM   A0bbd            ; 0bb4 91 08
+	;  or: if mainBall is left of testBall
+	LR   W,J                 ; 0bb3 1d    ; Reuse flags from earlier
+	BM   .useEnemySize       ; 0bb4 91 08
 				
 	; Get player ball width
 	LI   MASK_PLAYER_SIZE    ; 0bb6 20 c0
 	NS   main.gameSettings   ; 0bb8 fa
 	SR   1                   ; 0bb9 12
 	SR   1                   ; 0bba 12
-	BR   A0bc0               ; 0bbb 90 04
+	BR   .testXaxis          ; 0bbb 90 04
 
 	; or get enemy ball width
-A0bbd:
+.useEnemySize:
 	LI   MASK_ENEMY_SIZE     ; 0bbd 20 30
 	NS   main.gameSettings   ; 0bbf fa
 
-A0bc0:
+.testXaxis:
 	SR   4                   ; 0bc0 14
 
-	; r1 = +/-(mainBall.xpos - testBall.xpos) - testBall.width
+	; xDelta - testBall.width
 	COM                      ; 0bc1 18
 	INC                      ; 0bc2 1f
-	AS   $1                  ; 0bc3 c1
+	AS   .xDelta             ; 0bc3 c1
 
-	; if r1 is positive, no collision occured (return to beginning of loop)
-	BP   ballCollision.loopA             ; 0bc4 81 b3
+	; if (xDelta >= testBall.width)
+	;  continue on to next ball
+	BP   .testBallLoop             ; 0bc4 81 b3
+	; else
+	;  test the y axis collision
 
-; Test collision on the y axis
-	; do check with ypos[loop_counter] ??
+; -- Test collision on the y axis ----------------------------------------------
+.yDelta = $2
 	; mainBall.ypos-testBall.ypos
 	LR   A,IS                ; 0bc6 0a
 	AI   balls.arraySize     ; 0bc7 24 0b
 	LR   IS,A                ; 0bc9 0b
 	LR   A,(IS)              ; 0bca 4c
-	NI   %00111111           ; 0bcb 21 3f
+	NI   MASK_YPOSITION      ; 0bcb 21 3f
 	COM                      ; 0bcd 18
 	INC                      ; 0bce 1f
 	AS   mainBall.ypos       ; 0bcf c2
 	
-	; save test results
+	; Save flags
 	LR   J,W                 ; 0bd0 1e
-	; keep results if (mainBall.ypos >= testBall.ypos)
-	BP   A0bd5             ; 0bd1 81 03
-	; otherwise negate the results
+	; Keep results if (mainBall.ypos >= testBall.ypos)
+	BP   .saveYdelta         ; 0bd1 81 03
+	; Otherwise negate the results
 	COM                      ; 0bd3 18
 	INC                      ; 0bd4 1f
-A0bd5:
-	; save result from test in r2
-	LR   $2,A                ; 0bd5 52
+.saveYdelta:
+	; abs(mainBall.ypos-testBall.ypos)
+	LR   .yDelta,A           ; 0bd5 52
 
 	; branch ahead if testBall is not a player ball
 	LR   A,IS                ; 0bd6 0a
 	CI   [balls.ypos+MAX_PLAYERS-1]; 0bd7 25 1c
-	BNC   A0be5              ; 0bd9 92 0b
+	BNC   .useEnemySize2     ; 0bd9 92 0b
 
-	; Reuse test result from earlier (player or enemy ball?)
-	LR   W,J                 ; 0bdb 1d
-	BM   A0be5            ; 0bdc 91 08
+	; branch ahead if mainBall.ypos < testBall.ypos
+	;  or: if mainBall is north of testBall
+	LR   W,J                 ; 0bdb 1d    ; Reuse flags from earlier
+	BM   .useEnemySize2      ; 0bdc 91 08
 	
 	; Get player ball width
 	LI   MASK_PLAYER_SIZE    ; 0bde 20 c0
 	NS   main.gameSettings   ; 0be0 fa
 	SR   1                   ; 0be1 12
 	SR   1                   ; 0be2 12
-	BR   A0be8            ; 0be3 90 04
+	BR   .testYaxis          ; 0be3 90 04
 	; or get enemy ball width
-A0be5:
+.useEnemySize2:
 	LI   MASK_ENEMY_SIZE     ; 0be5 20 30
 	NS   main.gameSettings   ; 0be7 fa
-A0be8:
+.testYaxis:
 	SR   4                   ; 0be8 14
 	
-	; r1 = +/-(mainBall.xpos - testBall.xpos) - testBall.width
+	; yDelta - tempWidth
 	COM                      ; 0be9 18
 	INC                      ; 0bea 1f
 	AS   $2                  ; 0beb c2
 
-	; if r2 is positive, no collision occured (return to beginning of loop)
-	BP   ballCollision.loopA             ; 0bec 81 8b
+	; if (yDelta >= tempWidth)
+	;  continue on to next ball
+	BP   .testBallLoop             ; 0bec 81 8b
+	; else
+	;  handle the collision that just happened
 
-; -- If we got to this point, a collision has happened --
+; -- If we got to this point, a collision has happened -------------------------
 	
 	; Check if the collision was with a player
 	;  If so, game over
 	;  Else, skip ahead
-	SETISAR 071              ; 0bee 67 69
+	SETISAR testBall         ; 0bee 67 69
 	LR   A,(IS)              ; 0bf0 4c
 	CI   [MAX_PLAYERS-1]     ; 0bf1 25 01
 	BNC   A0bf8              ; 0bf3 92 04
 	; Game over
-	JMP  gameOver               ; 0bf5 29 0e 44
+	JMP  gameOver            ; 0bf5 29 0e 44
 
 A0bf8:
 	; Play sound
@@ -1847,17 +1868,20 @@ A0bf8:
 	; RNG for random bounce trajectory
 	PI   rand                ; 0bfe 28 08 c1
 
-	; branch ahead if the ydelta from earlier is small (?)
-	LR   A,$2                ; 0c01 42
-	CI   $01                 ; 0c02 25 01
+	; branch ahead if(ydelta <= 1)
+	LR   A,.ydelta           ; 0c01 42
+	CI   1                   ; 0c02 25 01
 	BC   A0c41               ; 0c04 82 3c
 
-; Fiddle with the x direction
-	; randomize x direction of mainBall
+; -- Fiddle with the x direction -----------------------------------------------
+	
+; Randomize x direction of mainBall
+	; Set ISAR to xpos[curBall]
 	LI   balls.xpos          ; 0c06 20 10
 	AS   main.curBall        ; 0c08 cb
 	LR   IS,A                ; 0c09 0b
-	LI   %10000000           ; 0c0a 20 80
+	
+	LI   MASK_DIRECTION      ; 0c0a 20 80
 	NS   RNG.regHi           ; 0c0c f6
 	XS   (IS)                ; 0c0d ec
 	LR   (IS),A              ; 0c0e 5c
@@ -1870,7 +1894,7 @@ A0bf8:
 	LI   balls.xpos          ; 0c12 20 10
 	AS   (IS)                ; 0c14 cc
 	LR   IS,A                ; 0c15 0b
-	LI   %10000000           ; 0c16 20 80
+	LI   MASK_DIRECTION      ; 0c16 20 80
 	NS   RNG.regLo           ; 0c18 f7
 	AS   (IS)                ; 0c19 cc
 	LR   (IS),A              ; 0c1a 5c
@@ -1892,9 +1916,9 @@ A0c20:
 	AS   (IS)                ; 0c23 cc
 	BP   A0c29               ; 0c24 81 04
 	; If so, restart loop
-	JMP  ballCollision.loopA               ; 0c26 29 0b 78
+	JMP  .testBallLoop               ; 0c26 29 0b 78
 
-; Fiddle with the velocity	
+; -- Fiddle with the velocity --------------------------------------------------
 A0c29:	
 	; get index to mainBall's velocity
 	LR   A,$0                ; 0c29 40
@@ -1925,9 +1949,9 @@ A0c34:
 	AS   $4                  ; 0c3c c4
 	LR   (IS),A              ; 0c3d 5c
 	; Since we had a collision, we can just return early
-	JMP  ballCollision.return            ; 0c3e 29 0b 6c
+	JMP  collision.return            ; 0c3e 29 0b 6c
 
-; Fiddle with y direction	
+; -- Fiddle with y direction ---------------------------------------------------
 A0c41:
 	; r0 = testBall
 	; isar = balls.ypos[testBall]
@@ -1937,7 +1961,7 @@ A0c41:
 	AI   balls.ypos          ; 0c45 24 1b
 	LR   IS,A                ; 0c47 0b
 
-	; Flip the y velocity of testBall
+	; Flip the y direction of testBall
 	LI   %10000000           ; 0c48 20 80
 	XS   (IS)                ; 0c4a ec
 	LR   (IS),A              ; 0c4b 5c
@@ -1967,8 +1991,8 @@ A0c59:
 	LR   $8,A                ; 0c5c 58
 	; Branch always
 	BR   A0c20            ; 0c5d 90 c2
-; End ball-ball collision routine
-;----------------------------
+; end of collision()
+;-------------------------------------------------------------------------------
 
 ;----------------------------
 ; Set playfield bounds (for one axis)
@@ -1990,10 +2014,10 @@ A0c60: ; Reroll RNG until r6 is non-zero
 	AS   RNG.regHi           ; 0c64 c6
 	BZ   A0c60             ; 0c65 84 fa
 	
-	; if(r1 == 0x58)
+	; if(r1 == 0x58) ; x axis case
 	;  if(RNG > 0x0B)
 	;   go back and reroll
-	; else if(RNG > 0x12)
+	; else if(RNG > 0x12) ; y axis case
 	;   go back and reroll
 	LR   A,$1                ; 0c67 41
 	CI   $58                 ; 0c68 25 58
@@ -2042,7 +2066,7 @@ A0c73:
 	
 	; Set the left or top boundary
 	; ISAR++ = r6 + r2
-	LR   A,$6                ; 0c8a 46
+	LR   A,RNG.regHi         ; 0c8a 46
 	AS   $2                  ; 0c8b c2
 	LR   (IS)+,A             ; 0c8c 5d
 
@@ -2188,7 +2212,8 @@ init:
 	INS  5                   ; 0cd7 a5
 	LR   (IS)-,A             ; 0cd8 5e
 	
-	; clear o73 (TODO: Figure out what it's for.)
+	; Clear BIOS stack pointer at 073
+	;  This game does not use the BIOS's stack functions
 	LISL 3                   ; 0cd9 6b
 	CLR                      ; 0cda 70
 	LR   (IS),A              ; 0cdb 5c
@@ -2555,7 +2580,7 @@ main.ballLoop:
 	LR   (IS),A              ; 0e07 5c
 
 	PI   doBall              ; 0e08 28 0a 53
-	PI   ballCollision       ; 0e0b 28 0b 6e
+	PI   collision           ; 0e0b 28 0b 6e
 	
 	; if we're not dealing with a player ball, then move on to the next ball
 	DS   main.curBall        ; 0e0e 3b
