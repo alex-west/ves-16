@@ -1648,7 +1648,7 @@ collision.return: ; The next function uses this to return as well
 ;-------------------------------------------------------------------------------
 ; collision()
 ;
-; Performs ball-ball collision detection
+; Performs ball-ball collision detection.
 ;
 ; This function:
 ; - Sets up the loop
@@ -1661,18 +1661,21 @@ collision.return: ; The next function uses this to return as well
 ; - Fiddles with y direction
 ;
 ; That's a lot of stuff.
+;
+; TODO: Write a better description here.
 
 ; == Arguments ==
 ; main.curBall = $b
 
 ; == Locals ==
 testBall = 071
-
 mainBall.xpos = $1
 mainBall.ypos = $2
 
+; == Entry Point ==
 collision: subroutine
 	LR   K,P                 ; 0b6e 08
+
 	; setting up the collision loop counter
 	; testBall = (delayIndex & 0x0F) + 1
 	SETISAR delayIndex       ; 0b6f 65 6f
@@ -1683,7 +1686,7 @@ collision: subroutine
 	LR   (IS),A              ; 0b77 5c
 
 .testBallLoop:
-	; loop_counter--
+	; loopCount--
 	SETISAR testBall         ; 0b78 67 69
 	DS   (IS)                ; 0b7a 3c
 
@@ -1700,7 +1703,7 @@ collision: subroutine
 	LIS  $1                  ; 0b82 71
 	NS   (IS)                ; 0b83 fc
 	; If so, skip ahead
-	BNZ  A0b8c               ; 0b84 94 07
+	BNZ  .getBallPosition    ; 0b84 94 07
 	
 	; If not, check if the loop counter is a player's ball
 	SETISARL testBall        ; 0b86 69
@@ -1709,7 +1712,7 @@ collision: subroutine
 	; If so, skip the current ball
 	BZ   .testBallLoop ; 0b8a 84 ed
 
-A0b8c:
+.getBallPosition:
 	; r1 = xpos[curBall]
 	LI   balls.xpos          ; 0b8c 20 10
 	AS   main.curBall        ; 0b8e cb
@@ -1792,6 +1795,7 @@ A0b8c:
 
 ; -- Test collision on the y axis ----------------------------------------------
 .yDelta = $2
+
 	; mainBall.ypos-testBall.ypos
 	LR   A,IS                ; 0bc6 0a
 	AI   balls.arraySize     ; 0bc7 24 0b
@@ -1839,11 +1843,11 @@ A0b8c:
 	; yDelta - tempWidth
 	COM                      ; 0be9 18
 	INC                      ; 0bea 1f
-	AS   $2                  ; 0beb c2
+	AS   .yDelta             ; 0beb c2
 
 	; if (yDelta >= tempWidth)
 	;  continue on to next ball
-	BP   .testBallLoop             ; 0bec 81 8b
+	BP   .testBallLoop       ; 0bec 81 8b
 	; else
 	;  handle the collision that just happened
 
@@ -1855,11 +1859,11 @@ A0b8c:
 	SETISAR testBall         ; 0bee 67 69
 	LR   A,(IS)              ; 0bf0 4c
 	CI   [MAX_PLAYERS-1]     ; 0bf1 25 01
-	BNC   A0bf8              ; 0bf3 92 04
+	BNC   .makeNoise         ; 0bf3 92 04
 	; Game over
 	JMP  gameOver            ; 0bf5 29 0e 44
 
-A0bf8:
+.makeNoise:
 	; Play sound
 	LI   SOUND_500Hz         ; 0bf8 20 80
 	LR   playSound.sound,A   ; 0bfa 53
@@ -1868,133 +1872,144 @@ A0bf8:
 	; RNG for random bounce trajectory
 	PI   rand                ; 0bfe 28 08 c1
 
-	; branch ahead if(ydelta <= 1)
-	LR   A,.ydelta           ; 0c01 42
+	; branch ahead if(yDelta < 1)
+	LR   A,.yDelta           ; 0c01 42
 	CI   1                   ; 0c02 25 01
-	BC   A0c41               ; 0c04 82 3c
+	BC   .randYdirection     ; 0c04 82 3c
 
 ; -- Fiddle with the x direction -----------------------------------------------
+.speedThing = $8
+.SPEED_ADJUST = $44
+.randBall = $0 ; TODO: Give this variable a better name (it's not random)
 	
 ; Randomize x direction of mainBall
 	; Set ISAR to xpos[curBall]
 	LI   balls.xpos          ; 0c06 20 10
 	AS   main.curBall        ; 0c08 cb
 	LR   IS,A                ; 0c09 0b
-	
+	; XOR the direction with the RNG
 	LI   MASK_DIRECTION      ; 0c0a 20 80
 	NS   RNG.regHi           ; 0c0c f6
 	XS   (IS)                ; 0c0d ec
 	LR   (IS),A              ; 0c0e 5c
-
-	; save flags from the XOR operation (I don't think they're ever used)
+	; Save flags from (MASK_DIRECTION xor RNG)
+	; Note: These flags do not appear to be used
 	LR   J,W                 ; 0c0f 1e
 
-	; randomize x direction of testBall
+; Randomize x direction of testBall
+	; ISAR = balls.xpos + testBall
 	SETISAR testBall         ; 0c10 67 69
 	LI   balls.xpos          ; 0c12 20 10
 	AS   (IS)                ; 0c14 cc
 	LR   IS,A                ; 0c15 0b
+	; Add RNG.lo to the direction
 	LI   MASK_DIRECTION      ; 0c16 20 80
 	NS   RNG.regLo           ; 0c18 f7
 	AS   (IS)                ; 0c19 cc
 	LR   (IS),A              ; 0c1a 5c
 				
-	; We'll be using this later to adjust the velocity
-	LI   $44                 ; 0c1b 20 44
-	LR   $8,A                ; 0c1d 58
+	; We'll be using this later to adjust the speed
+	LI   .SPEED_ADJUST       ; 0c1b 20 44
+	LR   .speedThing,A       ; 0c1d 58
 
-	; r0 = mainBall
+	; randBall = mainBall
+	;  The branch that fiddles the y direction sets this to testBall
 	LR   A, main.curBall     ; 0c1e 4b
-	LR   $0,A                ; 0c1f 50
+	LR   .randBall,A         ; 0c1f 50
 
-A0c20:
-	; If bit 7 of gameMode is set, we mess with the velocity
-	; TODO: Figure out if it is set elsewhere -- It appears that explode()
-	;  clears this bit
+; -- Fiddle with the speed -----------------------------------------------------
+.thisBitmask = $3
+.otherSpeed = $4
+
+.checkMode:
+	; If bit 7 of gameMode is set, we mess with the speed
+	; TODO: Figure out where this bit is set (explode() clears this bit)
 	SETISAR gameMode         ; 0c20 67 6d
 	CLR                      ; 0c22 70
 	AS   (IS)                ; 0c23 cc
-	BP   A0c29               ; 0c24 81 04
-	; If so, restart loop
-	JMP  .testBallLoop               ; 0c26 29 0b 78
+	BP   .changeSpeed        ; 0c24 81 04
+	; Else, test the next ball
+	JMP  .testBallLoop       ; 0c26 29 0b 78
 
-; -- Fiddle with the velocity --------------------------------------------------
-A0c29:	
-	; get index to mainBall's velocity
-	LR   A,$0                ; 0c29 40
+.changeSpeed:
+	; ISAR = balls.speed + randBall/2
+	LR   A,.randBall         ; 0c29 40
 	SR   1                   ; 0c2a 12
 	AI   balls.speed         ; 0c2b 24 26
 	LR   IS,A                ; 0c2d 0b
 
-	; conjure up the bitmask to extract it
+	; Conjure up the bitmask to extract randBall's speed
 	LIS  $1                  ; 0c2e 71
-	NS   $0                  ; 0c2f f0
-	LIS  $f                  ; 0c30 7f
-	BNZ  A0c34               ; 0c31 94 02
+	NS   .randBall           ; 0c2f f0
+	LIS  MASK_SPEED          ; 0c30 7f
+	BNZ  .getThisBitmask     ; 0c31 94 02
 	COM                      ; 0c33 18
-A0c34:
-	; save it in r3
-	LR   $3,A                ; 0c34 53
-	; save the other velocity bitfield in r4
+.getThisBitmask:
+	; Save randBall's speed bitmask
+	LR   .thisBitmask,A      ; 0c34 53
+	; Temp storage for the other speed bitfield
 	COM                      ; 0c35 18
 	NS   (IS)                ; 0c36 fc
-	LR   $4,A                ; 0c37 54
-	; get the velocity bitfield for mainBall
-	LR   A,$3                ; 0c38 43
+	LR   .otherSpeed,A       ; 0c37 54
+	
+	; Get the speed bitfield for randBall
+	LR   A,.thisBitmask      ; 0c38 43
 	NS   (IS)                ; 0c39 fc
-	; add r8 to it, and clean up with the bitmask
-	AS   $8                  ; 0c3a c8
-	NS   $3                  ; 0c3b f3
-	; merge the two bitfields and save the result
-	AS   $4                  ; 0c3c c4
+	; Add .speedThing to it, and clean up with the bitmask
+	AS   .speedThing         ; 0c3a c8
+	NS   .thisBitmask        ; 0c3b f3
+	; Merge the two speed bitfields and save the result
+	AS   .otherSpeed         ; 0c3c c4
 	LR   (IS),A              ; 0c3d 5c
-	; Since we had a collision, we can just return early
+	
+	; Return (don't process any more collisions for mainBall)
 	JMP  collision.return            ; 0c3e 29 0b 6c
 
 ; -- Fiddle with y direction ---------------------------------------------------
-A0c41:
-	; r0 = testBall
-	; isar = balls.ypos[testBall]
+.randYdirection:
+	; randBall = testBall
+	; ISAR = balls.ypos + randBall
 	SETISAR testBall         ; 0c41 67 69
 	LR   A,(IS)              ; 0c43 4c
-	LR   $0,A                ; 0c44 50
+	LR   .randBall,A         ; 0c44 50
 	AI   balls.ypos          ; 0c45 24 1b
 	LR   IS,A                ; 0c47 0b
 
 	; Flip the y direction of testBall
-	LI   %10000000           ; 0c48 20 80
+	LI   MASK_DIRECTION      ; 0c48 20 80
 	XS   (IS)                ; 0c4a ec
 	LR   (IS),A              ; 0c4b 5c
-	LR   J,W                 ; 0c4c 1e ; save flags
+	; Save flags for later
+	LR   J,W                 ; 0c4c 1e
 
-	; isar = mainBall
+	; ISAR = balls.ypos + mainBall
 	LI   balls.ypos          ; 0c4d 20 1b
 	AS   main.curBall        ; 0c4f cb
 	LR   IS,A                ; 0c50 0b
 
-	; balls.ypos[mainBall]
+	; Set mainBall's direction to down
 	LR   A,(IS)              ; 0c51 4c
-	OI   %10000000           ; 0c52 22 80
-
-	; if testBall's y direction became 1, let mainBall's y direction become 1
-	; if testBall's y direction became 0, let mainBall's y direction become 0
-	;  This almost feels like a bug, but it would explain some weirdness with 
-	;   how the balls bounce
-	LR   W,J                 ; 0c54 1d ; restore flags
-	BP   A0c59               ; 0c55 81 03
-	NI   %00111111           ; 0c57 21 3f
-A0c59:
+	OI   MASK_DIRECTION      ; 0c52 22 80
+	
+	; Load flags from earlier
+	;  if testBall went down, mainBall goes up
+	;  if testBall went up, mainBall goes down
+	LR   W,J                 ; 0c54 1d
+	BP   .setYdirection      ; 0c55 81 03
+	NI   MASK_YPOSITION      ; 0c57 21 3f
+.setYdirection:
 	LR   (IS),A              ; 0c59 5c
 	
 	; We'll be using this later to adjust the velocity
-	LI   $44                 ; 0c5a 20 44
-	LR   $8,A                ; 0c5c 58
-	; Branch always
-	BR   A0c20            ; 0c5d 90 c2
+	LI   .SPEED_ADJUST       ; 0c5a 20 44
+	LR   .speedThing,A       ; 0c5c 58
+	
+	; Go to the "fiddle with speed" section of this function
+	BR   .checkMode          ; 0c5d 90 c2
 ; end of collision()
 ;-------------------------------------------------------------------------------
 
-;----------------------------
+;-------------------------------------------------------------------------------
 ; Set playfield bounds (for one axis)
 ; Args
 ;  r1 - ??
@@ -2009,10 +2024,10 @@ setBounds: subroutine
 	LR   K,P                 ; 0c5f 08
 
 A0c60: ; Reroll RNG until r6 is non-zero
-	PI   rand                   ; 0c60 28 08 c1
-	CLR                  ; 0c63 70
+	PI   rand                ; 0c60 28 08 c1
+	CLR                      ; 0c63 70
 	AS   RNG.regHi           ; 0c64 c6
-	BZ   A0c60             ; 0c65 84 fa
+	BZ   A0c60               ; 0c65 84 fa
 	
 	; if(r1 == 0x58) ; x axis case
 	;  if(RNG > 0x0B)
@@ -2169,7 +2184,7 @@ flash.exit:
 ; playSound(ball, sound)
 ;  Leaf Function
 ;
-; Make a ticking noise when the balls collide with something
+; Make a ticking noise when the balls collide with something.
 
 ; == Arguments ==
 playSound.sound = 3
@@ -2178,14 +2193,13 @@ playSound.sound = 3
 ; == Entry Point ==
 playSound: subroutine
 	; if(curBall >= MAX_PLAYERS)
-	;  play the sound
 	LR   A, main.curBall     ; 0cc8 4b
 	CI   [MAX_PLAYERS-1]     ; 0cc9 25 01
 	BC   playSound.exit      ; 0ccb 82 03
-	
+	; then play the sound
 	LR   A, playSound.sound  ; 0ccd 43
 	OUTS 5                   ; 0cce b5
-
+	
 playSound.exit:          
 	POP                      ; 0ccf 1c
 ; end playSound()
