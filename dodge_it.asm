@@ -79,18 +79,18 @@ hiScore.p1.lo = 055
 balls.count = 056
 delayIndex  = 057 ; Basically the same as balls.count
 
-; Arena Bounds
-; The left and top bounds work how you'd expect. However, the right and bottom
-;  bounds are weird. Not only do they have different values for player and enemy
+; Arena Walls
+; The left and top walls work how you'd expect. However, the right and bottom
+;  walls are weird. Not only do they have different values for player and enemy
 ;  (to account for their different sizes), but they are also negative. In other
-;  words, they give distances for how far the bounds are from some point 256
+;  words, they give distances for how far the walls are from some point 256
 ;  pixels away from the origin. It's weird and inexplicable
-bounds.rightEnemy = 060
-bounds.rightPlayer = 061
-bounds.left = 062
-bounds.bottomEnemy = 063
-bounds.bottomPlayer = 064
-bounds.top = 065
+wall.rightEnemy = 060
+wall.rightPlayer = 061
+wall.left = 062
+wall.lowerEnemy = 063
+wall.lowerPlayer = 064
+wall.upper = 065
 
 ; Timer
 timer.hi = 066
@@ -140,7 +140,7 @@ CHAR_QMARK = $B
 CHAR_WIDTH = $4
 CHAR_HEIGHT = $5
 
-;--
+;-------------------------------------------------------------------------------
 
 	org $0800
 
@@ -218,15 +218,17 @@ delayTableHard:
 gameModeMasks:
 	db $C0, $30, $0C, $03, $FC ; 0843 c0 30 0c 03 fc
 				
-; Referenced but never read, it seems
-A0848:
-	db $00, $00, $12, $0B, $0B, $06, $02, $01 ; 0848 00 00 12 0b 0b 06 02 01
+; This table is referenced but never read. Based on the code that references
+;  this table, it likely pertained to the enemy speeds. (Also, there is a chance
+;  that the endian-ness is wrong on these.)
+unusedSpeedTable:
+	dw $0000, $120B, $0B06, $0201 ; 0848 00 00 12 0b 0b 06 02 01
 
-ballColors: ; blue, green, red ?
+ballColors: ; blue, green, red: for P1, P2, and enemies
 	db $40, $C0, $80 ; 0850 40 c0 80
 	
 menuChoices:
-	db $00, $01, $02, $03, $03  ; 0853 00 01
+	db $00, $01, $02, $03, $03  ; 0853 00 01 02 03 03
 
 ;-------------------------------------------------------------------------------
 ; draw(param, xpos, ypos, width, height)
@@ -1371,11 +1373,11 @@ doBall: subroutine
 .lowerBound  = $5
 
 ; Get player or enemy right bound, depending on curBall
-	SETISAR bounds.rightEnemy; 0a9f 66 68
+	SETISAR wall.rightEnemy  ; 0a9f 66 68
 	LR   A, main.curBall     ; 0aa1 4b
 	CI   [MAX_PLAYERS-1]     ; 0aa2 25 01
 	BNC   .setRightBound     ; 0aa4 92 02
-	SETISARL bounds.rightPlayer; 0aa6 69
+	SETISARL wall.rightPlayer; 0aa6 69
 .setRightBound:          
 	LR   A,(IS)              ; 0aa7 4c
 	LR   .rightBound,A       ; 0aa8 54
@@ -1432,7 +1434,7 @@ doBall: subroutine
 	; branch ahead if(leftBound < xpos)
 	COM                      ; 0ace 18
 	INC                      ; 0acf 1f
-	SETISAR bounds.left      ; 0ad0 66 6a
+	SETISAR wall.left        ; 0ad0 66 6a
 	AS   (IS)                ; 0ad2 cc
 	BNC  .checkBottomWall    ; 0ad3 92 0b
 	
@@ -1483,12 +1485,12 @@ doBall: subroutine
 
 ; Check if colliding with top wall
 .checkTopWall:
-	SETISARU bounds.top      ; 0afb 66
+	SETISARU wall.upper      ; 0afb 66
 	NI   MASK_YPOSITION      ; 0afc 21 3f
 	; branch ahead if(topBound < ypos)
 	COM                      ; 0afe 18
 	INC                      ; 0aff 1f
-	SETISARL bounds.top      ; 0b00 6d
+	SETISARL wall.upper      ; 0b00 6d
 	AS   (IS)                ; 0b01 cc
 	BNC   .applySpeedChanges ; 0b02 92 0b
 	
@@ -2010,85 +2012,96 @@ collision: subroutine
 ;-------------------------------------------------------------------------------
 
 ;-------------------------------------------------------------------------------
-; Set playfield bounds (for one axis)
-; Args
-;  r1 - ??
-;  r2 - 
-;  r4 -
-;  r10 - ??
-; Clobbers
-;  r6 - via RNG call
-;  r7 - via RNG call
-;  ISAR[x] to ISAR[x+2]
-setBounds: subroutine 
+; setWalls()
+;
+; Sets the positions of the walls along one axis given an input range.
+  
+; == Arguments ==
+; *walls = ISAR
+walls.max = $1
+walls.min = $2
+
+; == Constants ==
+WALL_XMAX = $58
+WALL_YMAX = $38
+WALL_MIN  = $10
+
+setWalls: subroutine 
 	LR   K,P                 ; 0c5f 08
 
-A0c60: ; Reroll RNG until r6 is non-zero
+; == Locals ==
+.tempWall = $4
+.X_OFFSET_MAX = $12
+.Y_OFFSET_MAX = $0B
+
+.reroll:
+	; Reroll RNG until r6 is non-zero
 	PI   rand                ; 0c60 28 08 c1
 	CLR                      ; 0c63 70
 	AS   RNG.regHi           ; 0c64 c6
-	BZ   A0c60               ; 0c65 84 fa
+	BZ   .reroll             ; 0c65 84 fa
 	
+; Make sure the RNG is in range, depending on the axis being set
 	; if(r1 == 0x58) ; x axis case
-	;  if(RNG > 0x0B)
+	;  if(RNG > 0x12)
 	;   go back and reroll
-	; else if(RNG > 0x12) ; y axis case
+	; else if(RNG > 0x0B) ; y axis case
 	;   go back and reroll
-	LR   A,$1                ; 0c67 41
-	CI   $58                 ; 0c68 25 58
-	LR   A, RNG.regHi        ; 0c6a 46
-	BNZ  A0c71               ; 0c6b 94 05
-	CI   $12                 ; 0c6d 25 12
-	BR   A0c73               ; 0c6f 90 03
-A0c71:
-	CI   $0b                 ; 0c71 25 0b
-A0c73:
-	BNC   A0c60            ; 0c73 92 ec
+	LR   A,walls.max         ; 0c67 41
+	CI   WALL_XMAX           ; 0c68 25 58
 
-	; do the math for the right or bottom boundary
-	;  Note: the greater this number is, the more to the left or top this boundary
-	;   is. (Unintuitive. Works opposite of how the top and left bounds work)
-	; r4 = -(r1-(rng-1))  ??
+	LR   A, RNG.regHi        ; 0c6a 46
+	BNZ  .clampY             ; 0c6b 94 05
+
+	CI   .X_OFFSET_MAX       ; 0c6d 25 12
+	BR   .clampX             ; 0c6f 90 03
+
+.clampY:
+	CI   .Y_OFFSET_MAX       ; 0c71 25 0b
+.clampX:
+	BNC  .reroll             ; 0c73 92 ec
+
+; Get the base value for the right/lower wall
+	;  Note: the greater this number is, the more to the left (or top) this wall
+	;   is. (Unintuitive. Works opposite of how the upper and left walls work.)
+	; .tempWall = -(max-rng+1)
 	COM                      ; 0c75 18
 	INC                      ; 0c76 1f
 	INC                      ; 0c77 1f
-	AS   $1                  ; 0c78 c1
+	AS   walls.max           ; 0c78 c1
 	COM                      ; 0c79 18
 	INC                      ; 0c7a 1f
-	LR   $4,A                ; 0c7b 54
+	LR   .tempWall,A         ; 0c7b 54
 	
-	; Set enemy's right or bottom boundary
-	; ISAR++ = ((reg_a & 0x30) >> 4) + r4
-	; Get enemy ball size
+; Adjust the right/lower wall according to the enemy's size
+	; wall.right(or lower)Enemy = playerSize + .tempWall
 	LI   MASK_ENEMY_SIZE     ; 0c7c 20 30
 	NS   main.gameSettings   ; 0c7e fa
 	SR   4                   ; 0c7f 14
-	; Add it to r4
-	AS   $4                  ; 0c80 c4
+	AS   .tempWall           ; 0c80 c4
 	LR   (IS)+,A             ; 0c81 5d
 	
-	; Set players's right or bottom boundary
-	; ISAR++ = ((reg_a & 0xC0) >> 6) + r4
-	; Get the player's ball size
+; Adjust the right/lower wall according to the player's size
+	; wall.right(or lower)Player = playerSize + .tempWall
 	LI   MASK_PLAYER_SIZE    ; 0c82 20 c0
 	NS   main.gameSettings   ; 0c84 fa
 	SR   4                   ; 0c85 14
 	SR   1                   ; 0c86 12
 	SR   1                   ; 0c87 12
-	; Add it to r4
-	AS   $4                  ; 0c88 c4
+	AS   .tempWall           ; 0c88 c4
 	LR   (IS)+,A             ; 0c89 5d
 	
-	; Set the left or top boundary
-	; ISAR++ = r6 + r2
+; Set the left or top boundary
+	; ISAR++ = walls.min + RNG
 	LR   A,RNG.regHi         ; 0c8a 46
-	AS   $2                  ; 0c8b c2
+	AS   walls.min           ; 0c8b c2
 	LR   (IS)+,A             ; 0c8c 5d
 
+	; Exit
 	LR   P,K                 ; 0c8d 09
 	POP                      ; 0c8e 1c
-; end of set bounds function
-;----------------------------
+; end of setWalls()
+;-------------------------------------------------------------------------------
 	
 ;-------------------------------------------------------------------------------
 ; flash()
@@ -2358,27 +2371,26 @@ shuffleGameTypeReroll:
 	AS   (IS)                ; 0d3a cc
 	LR   (IS)-,A             ; 0d3b 5e
 
-	; DC = (lower 2 bits of r10)*2
-	; I don't think this array ever gets read
-	; Each array element would have been 2 bytes
-	DCI  A0848               ; 0d3c 2a 08 48
-	LIS  $3                  ; 0d3f 73
+	; DC = (enemySpeed)*2
+	; Note: This array is never read from.
+	DCI  unusedSpeedTable    ; 0d3c 2a 08 48
+	LIS  MASK_ENEMY_SPEED    ; 0d3f 73
 	NS   main.gameSettings   ; 0d40 fa
 	SL   1                   ; 0d41 13
 	ADC                      ; 0d42 8e
 	
-	; set playfield bounds for x axis
-	LI   $58                 ; 0d43 20 58
-	LR   $1,A                ; 0d45 51
-	LI   $10                 ; 0d46 20 10
-	LR   $2,A                ; 0d48 52
-	SETISAR bounds.rightEnemy ; 0d49 66 68
-	PI   setBounds               ; 0d4b 28 0c 5f
+	; Set playfield walls for x axis
+	LI   WALL_XMAX           ; 0d43 20 58
+	LR   walls.max,A         ; 0d45 51
+	LI   WALL_MIN            ; 0d46 20 10
+	LR   walls.min,A         ; 0d48 52
+	SETISAR wall.rightEnemy  ; 0d49 66 68
+	PI   setWalls            ; 0d4b 28 0c 5f
 	
-	; set playfied bounds for y axis
-	LI   $38                 ; 0d4e 20 38
-	LR   $1,A                ; 0d50 51
-	PI   setBounds               ; 0d51 28 0c 5f
+	; Set playfield walls for y axis
+	LI   WALL_YMAX           ; 0d4e 20 38
+	LR   walls.max,A         ; 0d50 51
+	PI   setWalls            ; 0d51 28 0c 5f
 	
 	; Continue on to next procedure
 
@@ -2408,11 +2420,11 @@ restartGame:
 
 	; Draw inner box
 	; xpos = o62
-	SETISAR bounds.left      ; 0d66 66 6a
+	SETISAR wall.left        ; 0d66 66 6a
 	LR   A,(IS)              ; 0d68 4c
 	LR   draw.xpos, A        ; 0d69 51
 	; width = -(o62 + o60)
-	SETISARL bounds.rightEnemy ; 0d6a 68
+	SETISARL wall.rightEnemy ; 0d6a 68
 	AS   (IS)                ; 0d6b cc
 	COM                      ; 0d6c 18
 	INC                      ; 0d6d 1f
@@ -2429,11 +2441,11 @@ restartGame:
 	LR   draw.width, A       ; 0d75 54
 	
 	; set ypos (color is blank)
-	SETISARL bounds.top                  ; 0d76 6d
+	SETISARL wall.upper      ; 0d76 6d
 	LR   A,(IS)              ; 0d77 4c
 	LR   draw.ypos, A        ; 0d78 52
 	; height = -(top - bottom) + temp // temp is enemy size
-	SETISARL bounds.bottomEnemy; 0d79 6b
+	SETISARL wall.lowerEnemy ; 0d79 6b
 	AS   (IS)                ; 0d7a cc
 	COM                      ; 0d7b 18
 	INC                      ; 0d7c 1f
@@ -3049,7 +3061,7 @@ drawSpiral.exit: ; Return
 ; end drawSpiral()
 ;-----------------------------
 
-;-----------------------------
+;-------------------------------------------------------------------------------
 ; explode()
 ;  Top-level procedure
 ;
@@ -3135,7 +3147,7 @@ explode: subroutine
 	; Exit
 	JMP  mainLoop               ; 0f98 29 0d a0
 ; end explode()
-;-----------------------------
+;-------------------------------------------------------------------------------
 	
     db $b2 ; Unused!
 

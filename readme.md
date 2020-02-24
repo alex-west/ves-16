@@ -4,7 +4,7 @@ A disassembly of a game for the Fairchild Video Entertainment System.
 Build Instructions
 > dasm dodge_it.asm -f3 -ododge_it.bin
 
-Current status of the project: ~55%
+Current status of the project: ~70%
 
 Every chunk of code has been deciphered to one degree or another. What remains is various clean-up tasks: adding clear documentation, bringing the coding style up to par, answering some remaining unknowns (like what certain bitfields mean).
 
