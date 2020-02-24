@@ -2109,37 +2109,42 @@ setWalls: subroutine
 ;
 ; UNUSED
 ;
-; Makes the screen flash -- possibly an old death animation
+; Makes the screen flash -- possibly an old form of the death animation. Working
+;  off of that assumption, we will assume that this function would have been
+;  called after a player collision in the ball-ball collision function.
 
-; Args
+; == Arguments ==
+; testBall = 071
 
-; Locals / Clobbers
-flash.timer = 9
+; No Returns
 
-; Constants
-flash.length = $25
-; Returns
-;  N/A
-
-flash:
+flash: subroutine
 	LR   K,P                 ; 0c8f 08
-	LI   flash.length        ; 0c90 20 25
-	LR   flash.timer, A      ; 0c92 59
+
+; == Locals ==
+.loopCount = $9
+.NUM_LOOPS = $25
+	
+	LI   .NUM_LOOPS          ; 0c90 20 25
+	LR   .loopCount, A       ; 0c92 59
 
 	; Set flash color/sound value depending on value of o71 (who died?)
-	SETISAR 071              ; 0c93 67 69
+	SETISAR testBall         ; 0c93 67 69
 	LIS  $1                  ; 0c95 71
 	NS   (IS)-               ; 0c96 fe
 	LI   SOUND_500Hz         ; 0c97 20 80
-	BZ   A0c9d               ; 0c99 84 03
+	BZ   .setSound           ; 0c99 84 03
 	LI   SOUND_120Hz         ; 0c9b 20 c0
-A0c9d:          
+.setSound:          
 	LR   (IS), A             ; 0c9d 5c
 	LR   draw.ypos, A        ; 0c9e 52
 
-A0c9f:          
+; Loop back here to reset the sound and row attribute color to the above value
+.loopResetColor:          
 	LR   A,(IS)              ; 0c9f 4c
-A0ca0:          
+
+; Loop back here to keep the sound and row attribute color cleared
+.loopClearColor:          
 	; Set ypos/color
 	LR   draw.ypos, A        ; 0ca0 52
 
@@ -2149,7 +2154,7 @@ A0ca0:
 	LR   playSound.sound,A   ; 0ca2 53
 	PI   playSound           ; 0ca3 28 0c c8
 	
-	LISL 0                   ; 0ca6 68 ; ???
+	LISL 0                   ; 0ca6 68 ; ISAR = 070 ; Temp?
 	; Set xpos to attribute column
 	LI   gfx.attributeCol    ; 0ca7 20 7d
 	LR   draw.xpos, A        ; 0ca9 51
@@ -2159,13 +2164,13 @@ A0ca0:
 	; Set height
 	LI   gfx.screenHeight    ; 0cac 20 40
 	LR   draw.height, A      ; 0cae 55
-	; Set rendering properties
+	; Set rendering parameter
 	LI   DRAW_ATTRIBUTE      ; 0caf 20 c0
 	LR   draw.param, A       ; 0cb1 50
 	PI   drawBox             ; 0cb2 28 08 62
 	
 	; Clear sound
-	CLR                  ; 0cb5 70
+	CLR                      ; 0cb5 70
 	OUTS 5                   ; 0cb6 b5
 	
 	; Delay
@@ -2173,21 +2178,22 @@ A0ca0:
 	LR   delay.count, A      ; 0cb8 50
 	PI   delayVariable       ; 0cb9 28 09 9a
 
-	DS   flash.timer         ; 0cbc 39
-	BM   flash.exit          ; 0cbd 91 08
+	; loopCount--
+	;  exit it less than zero
+	DS   .loopCount          ; 0cbc 39
+	BM   .exit               ; 0cbd 91 08
 	
 	; if (timer is even)
 	;  ypos/color = (ISAR)
+	LIS  $1                  ; 0cbf 71
+	NS   .loopCount          ; 0cc0 f9
+	CLR                      ; 0cc1 70
+	BZ   .loopResetColor     ; 0cc2 84 dc
 	; else
 	;  ypos/color = 0
-	LIS  $1                  ; 0cbf 71
-	NS   flash.timer         ; 0cc0 f9
-	CLR                  ; 0cc1 70
-	BZ   A0c9f             ; 0cc2 84 dc
-	; Else set r2 to 0
-	BR   A0ca0            ; 0cc4 90 db
+	BR   .loopClearColor     ; 0cc4 90 db
 
-flash.exit:     
+.exit:     
 	LR   P,K                 ; 0cc6 09
 	POP                      ; 0cc7 1c
 ; end flash()
