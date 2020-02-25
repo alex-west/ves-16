@@ -108,8 +108,9 @@ hiScore.p2.lo = 074
 
 ; Game mode
 gameMode = 075
-MODE.SPEED_MASK = $02
-mode.2playerMask = $01
+MODE_CHOICE_MASK = %00000011
+MODE_SPEED_MASK = $02
+MODE_2P_MASK = $01
 
 RNG.seedHi = 076
 RNG.seedLo = 077
@@ -129,10 +130,15 @@ SOUND_500Hz = %10000000 ; 500Hz tone
 SOUND_120Hz = %11000000 ; 120Hz tone
 
 ; Graphics
-gfx.attributeCol = $7d
-gfx.attributeWidth = 2
-gfx.screenWidth = $80
-gfx.screenHeight = $40
+; blue, green, red: for P1, P2, and enemies
+BLUE  = $40
+RED   = $80
+GREEN = $C0
+
+DRAW_ATTR_X = $7d
+DRAW_ATTR_W = 2
+DRAW_SCREEN_W = $80
+DRAW_SCREEN_H = $40
 
 CHAR_G = $A
 CHAR_QMARK = $B
@@ -870,7 +876,7 @@ delayByTable: subroutine
 	
 ; Test to check the game speed
 	SETISAR gameMode         ; 098b 67 6d
-	LIS  MODE.SPEED_MASK     ; 098d 72
+	LIS  MODE_SPEED_MASK     ; 098d 72
 	NS   (IS)                ; 098e fc
 	
 ; Restore the ISAR
@@ -2156,13 +2162,13 @@ flash: subroutine
 	
 	LISL 0                   ; 0ca6 68 ; ISAR = 070 ; Temp?
 	; Set xpos to attribute column
-	LI   gfx.attributeCol    ; 0ca7 20 7d
+	LI   DRAW_ATTR_X         ; 0ca7 20 7d
 	LR   draw.xpos, A        ; 0ca9 51
 	; Set width
-	LIS  gfx.attributeWidth  ; 0caa 72
+	LIS  DRAW_ATTR_W         ; 0caa 72
 	LR   draw.width, A       ; 0cab 54
 	; Set height
-	LI   gfx.screenHeight    ; 0cac 20 40
+	LI   DRAW_SCREEN_H       ; 0cac 20 40
 	LR   draw.height, A      ; 0cae 55
 	; Set rendering parameter
 	LI   DRAW_ATTRIBUTE      ; 0caf 20 c0
@@ -2229,12 +2235,21 @@ playSound.exit:
 ;  Top-Level Procedure
 ;
 ; For simplicity's sake, this disassembly will divide the top-level thread into
-;  separate functions, even though they are not callable procedures.
+;  separate "functions", even though they are not callable and the code just
+;  flows and jumps from one block to another.
 ;
-; 
+; To initialize the game, this procedure does some initial bookkeeping with the
+;  scratchpad, I/O, and display, and then asks the player to select the game
+;  mode with the question "G?" The four selectable game types are:
+;
+; 1 - Slow, 1 player
+; 2 - Slow, 2 players
+; 3 - Fast, 1 player
+; 4 - Fast, 2 players
 
-init:
+init: subroutine
 	SETISAR RNG.seedLo       ; 0cd0 67 6f
+
 	; Enable data from controllers
 	LI   $40                 ; 0cd2 20 40
 	OUTS 0                   ; 0cd4 b0
@@ -2250,6 +2265,7 @@ init:
 	LISL 3                   ; 0cd9 6b
 	CLR                      ; 0cda 70
 	LR   (IS),A              ; 0cdb 5c
+	; The BIOS already intialized the rest of the scratchpad to zero
 	
 	; Clear port
 	OUTS 0                   ; 0cdc b0
@@ -2262,12 +2278,13 @@ init:
 	CLR                      ; 0ce0 70
 	LR   draw.xpos, A        ; 0ce1 51
 	LR   draw.ypos, A        ; 0ce2 52
-	; width = screen width
-	LI   gfx.screenWidth     ; 0ce3 20 80
+	; Set width
+	LI   DRAW_SCREEN_W       ; 0ce3 20 80
 	LR   draw.width, A       ; 0ce5 54
-	; height = screen height
-	LI   gfx.screenHeight    ; 0ce6 20 40
+	; Set height
+	LI   DRAW_SCREEN_H       ; 0ce6 20 40
 	LR   draw.height, A      ; 0ce8 55
+
 	PI   drawBox             ; 0ce9 28 08 62
 
 ; Set row attributes
@@ -2276,45 +2293,51 @@ init:
 	LR   draw.param, A       ; 0cee 50
 	LR   draw.ypos, A        ; 0cef 52
 	; Set width
-	LIS  gfx.attributeWidth  ; 0cf0 72
+	LIS  DRAW_ATTR_W         ; 0cf0 72
 	LR   draw.width, A       ; 0cf1 54
 	; xpos = attribute column
-	LI   gfx.attributeCol    ; 0cf2 20 7d
+	LI   DRAW_ATTR_X         ; 0cf2 20 7d
 	LR   draw.xpos, A        ; 0cf4 51
 	; Height and ypos are retained from previous write
 	PI   drawBox             ; 0cf5 28 08 62
 
 ; Draw the "G?" screen
-	; glyph = 'G'
+.G_X = $30
+.G_Y = $1B
+.Q_X = $35
+
+	; Set char
 	LIS  CHAR_G              ; 0cf8 7a
 	LR   draw.param, A       ; 0cf9 50
-	; xpos
-	LI   $30                 ; 0cfa 20 30
+	; Set xpos
+	LI   .G_X                ; 0cfa 20 30
 	LR   draw.xpos, A        ; 0cfc 51
-	; ypos and color
-	LI   $80|$1B             ; 0cfd 20 9b
+	; Set ypos and color
+	LI   RED | .G_Y          ; 0cfd 20 9b
 	LR   draw.ypos, A        ; 0cff 52
-	; width
+	; Set width
 	LIS  CHAR_WIDTH          ; 0d00 74
 	LR   draw.width, A       ; 0d01 54
-	; height
+	; Set height
 	LIS  CHAR_HEIGHT         ; 0d02 75
 	LR   draw.height, A      ; 0d03 55
+
 	PI   drawChar            ; 0d04 28 08 58
 	
-	; glyph = '?'
+	; Set char
 	LIS  CHAR_QMARK          ; 0d07 7b
 	LR   draw.param, A       ; 0d08 50
-	; x pos
-	LI   $35                 ; 0d09 20 35
+	; Set xpos
+	LI   .Q_X                ; 0d09 20 35
 	LR   draw.xpos, A        ; 0d0b 51
+
 	PI   drawChar            ; 0d0c 28 08 58
 	
-	; returns button pressed in the accumulator
+; Wait 10 seconds for input
 	PI   menu                ; 0d0f 28 08 f0
+	; The button press is returned in A (default is 1)
 
-	; Use a table to put the number of the button pressed into the lower two
-	;  bits of gameMode
+; Use a table to put the number of the button pressed into gameMode
 	SETISAR gameMode         ; 0d12 67 6d
 	SR   1                   ; 0d14 12
 	; DC was set in the menu
@@ -2325,57 +2348,69 @@ init:
 	; Continue on to next procedure
 	
 ;-------------------------------------------------------------------------------
-; shuffleGametype()
+; shuffleGame()
 ;  Top-Level Procedure
-shuffleGameType:          
-	SETISAR gameMode                     ; 0d18 67 6d
-	; preserve the player and game speed bits of gameMode
+;
+; This function randomizes the game parameters such as player size, enemy size,
+;  player speed, enemy speed, the upper six bits of gameMode, and the walls.
+;
+; TODO: Figure out if the upper six bits of gameMode are used for anything
+;  interesting or not.
+
+shuffleGame: subroutine
+	; Preserve the player and game speed bits of gameMode
+	SETISAR gameMode         ; 0d18 67 6d
 	LR   A,(IS)              ; 0d1a 4c
-	NI   %00000011           ; 0d1b 21 03
+	NI   MODE_CHOICE_MASK    ; 0d1b 21 03
 	LR   (IS),A              ; 0d1d 5c
 
-shuffleGameTypeReroll:
-	DCI  gameModeMasks               ; 0d1e 2a 08 43
+.reroll:
+	; Array of bitmaks to be used in the following series of tests
+	DCI  gameModeMasks       ; 0d1e 2a 08 43
+	
+	; Get a random number
 	PI   rand                ; 0d21 28 08 c1
 	
-	; put bits 6 and 7 of RNG into r8
-	; set player ball size
+; Test to see if the number is a valid game setting
+.temp = $8
+
+	; Put bits 6 and 7 of RNG into .temp (for player ball size)
 	LM                       ; 0d24 16
 	NS   RNG.regHi           ; 0d25 f6
-	LR   $8,A                ; 0d26 58
+	LR   .temp,A             ; 0d26 58
 	
-	; add bits 4 and 5 of RNG to bits 6 and 7 r8
-	; set enemy ball size
-	; redo it no carry
+	; Add bits 4 and 5 of RNG to the previous result (for enemy ball size)
 	LM                       ; 0d27 16
 	NS   RNG.regHi           ; 0d28 f6
 	SL   1                   ; 0d29 13
 	SL   1                   ; 0d2a 13
-	AS   $8                  ; 0d2b c8
-	BNC   shuffleGameTypeReroll              ; 0d2c 92 f1
-	; this is to make sure player and ball widths do not sum to less than 4
+	AS   .temp               ; 0d2b c8
+	; if(playerSize + enemySize < 4), then reroll
+	BNC  .reroll             ; 0d2c 92 f1
 	
-	; make sure at least one of bits 2 and 3 of RNG are set
-	; make sure player speed > 0
+	; Test if at least one of bits 2 and 3 of RNG are set
 	LM                       ; 0d2e 16
 	NS   RNG.regHi           ; 0d2f f6
-	BZ   shuffleGameTypeReroll               ; 0d30 84 ed
+	; if(playerSpeed == 0), then reroll
+	BZ   .reroll             ; 0d30 84 ed
 
-	; make sure at least one of bits 0 and 1 of RNG are set
-	; make sure enemy speed > 0
+	; Test if at least one of bits 0 and 1 of RNG are set
 	LM                       ; 0d32 16
 	NS   RNG.regHi           ; 0d33 f6
-	BZ   shuffleGameTypeReroll               ; 0d34 84 e9
+	; if(enemySpeed == 0), then reroll
+	BZ   .reroll             ; 0d34 84 e9
 
-	; store the results in r10
+	; RNG.regHi contains a valid value, so we can use it
 	LR   A, RNG.regHi        ; 0d36 46
-	LR   $a,A                ; 0d37 5a
+	LR   main.gameSettings,A ; 0d37 5a
 
-	; put the upper six bits of the RNG into gameMode
+; Put the upper six bits of the RNG into gameMode
 	LM                       ; 0d38 16
 	NS   RNG.regLo           ; 0d39 f7
 	AS   (IS)                ; 0d3a cc
 	LR   (IS)-,A             ; 0d3b 5e
+	; Note: This ISAR post-decrement puts the ISAR on player 2's high score.
+	;  This is not utilized.
 
 	; DC = (enemySpeed)*2
 	; Note: This array is never read from.
@@ -2384,7 +2419,10 @@ shuffleGameTypeReroll:
 	NS   main.gameSettings   ; 0d40 fa
 	SL   1                   ; 0d41 13
 	ADC                      ; 0d42 8e
-	
+	; Note: Perhaps the 2 bytes from this table was meant to be loaded into the
+	;  space that is now reserved for player 2's high score.
+
+; Set playfield walls
 	; Set playfield walls for x axis
 	LI   WALL_XMAX           ; 0d43 20 58
 	LR   walls.max,A         ; 0d45 51
@@ -2404,7 +2442,7 @@ shuffleGameTypeReroll:
 ; restartGame()
 ;  Top-Level Procedure
 ;
-restartGame:          
+restartGame: subroutine
 	; Draw playfield
 	; Set rendering properties
 	LI   DRAW_RECT            ; 0d54 20 80
@@ -2413,7 +2451,7 @@ restartGame:
 	LI   $10                 ; 0d57 20 10
 	LR   draw.xpos, A        ; 0d59 51
 	; Set ypos and color
-	AI   $80                 ; 0d5a 24 80
+	AI   RED + 0             ; 0d5a 24 80
 	LR   draw.ypos, A        ; 0d5c 52
 	; Set width
 	LI   $49                 ; 0d5d 20 49
@@ -2471,13 +2509,13 @@ restartGame:
 
 	; spawn the player balls
 	CLR                  ; 0d8a 70
-startGame.spawnBalls:          
+.spawnLoop:          
 	LR   main.curBall, A     ; 0d8b 5b
 	PI   spawnBall           ; 0d8c 28 09 c2
 	LR   A, main.curBall     ; 0d8f 4b
 	INC                      ; 0d90 1f
 	CI   [MAX_PLAYERS-1]     ; 0d91 25 01
-	BC   startGame.spawnBalls; 0d93 82 f7
+	BC   .spawnLoop          ; 0d93 82 f7
 
 	; spawn the first enemy ball
 	SETISAR balls.count      ; 0d95 65 6e
@@ -2509,9 +2547,9 @@ mainLoop: subroutine
 	LR   A,(IS)+             ; 0da4 4d
 	INC                      ; 0da5 1f
 	CI   [MAX_BALLS-1]       ; 0da6 25 0a
-	BC   main.setDelay       ; 0da8 82 02
+	BC   .setDelay           ; 0da8 82 02
 	LIS  [MAX_BALLS-1]       ; 0daa 7a
-main.setDelay:
+.setDelay:
 	SETISARU delayIndex      ; 0dab 65
 	LR   (IS),A              ; 0dac 5c
 	SETISARU timer.lo        ; 0dad 66
@@ -2542,7 +2580,7 @@ main.setTimerPos:
 	; Display timer
 	; Check if 1 or 2 player
 	SETISAR gameMode         ; 0dc5 67 6d
-	LIS  mode.2playerMask    ; 0dc7 71
+	LIS  MODE_2P_MASK        ; 0dc7 71
 	NS   (IS)                ; 0dc8 fc
 	; Display in middle if 2 player mode
 	LI   $39                 ; 0dc9 20 39
@@ -2718,7 +2756,7 @@ gameOver: subroutine
 	; 2P, player 1 - Green
 	; 2P, player 2 - Blue
 	SETISAR gameMode         ; 0e67 67 6d
-	LIS  mode.2playerMask    ; 0e69 71
+	LIS  MODE_2P_MASK        ; 0e69 71
 	NS   (IS)                ; 0e6a fc
 	LI   $80                 ; 0e6b 20 80
 	BZ   gameOver.clearSpiral; 0e6d 84 0a
@@ -2749,7 +2787,7 @@ gameOver.clearSpiral:
 	
 	; Check if two players
 	SETISAR gameMode         ; 0e89 67 6d
-	LIS  mode.2playerMask    ; 0e8b 71
+	LIS  MODE_2P_MASK        ; 0e8b 71
 	NS   (IS)                ; 0e8c fc
 	; If so, jump ahead
 	BNZ  gameOver.2players   ; 0e8d 94 38
@@ -2819,7 +2857,7 @@ gameOver.1pEnd:
 ;----------------------------
 
 gameOver.gotoShuffle:
-	JMP  shuffleGameType               ; 0ec3 29 0d 18
+	JMP  shuffleGame               ; 0ec3 29 0d 18
 
 ;----------------------------
 ; Game over cleanup - 2 player case
