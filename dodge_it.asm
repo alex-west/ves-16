@@ -95,6 +95,7 @@ wall.upper = 065
 ; Timer
 timer.hi = 066
 timer.lo = 067
+DIGIT_MASK = $0F
 
 ; These two registers are also used for a couple other things (TODO: Note those)
 input.p1 = 070 ; Left controller
@@ -1155,7 +1156,6 @@ drawTimer:
 ; == Local Constants ==
 .Y_OFFSET = $0A
 .X_DELTA  = <[-5]
-.DIGIT_MASK = $0F
 	
 ; Draw ones digit
 	; Load xpos
@@ -1166,7 +1166,7 @@ drawTimer:
 	AS   drawTimer.ypos      ; 0a25 c2
 	LR   draw.ypos, A        ; 0a26 52
 	; Set character
-	LI   .DIGIT_MASK         ; 0a27 20 0f
+	LI   DIGIT_MASK          ; 0a27 20 0f
 	NS   (IS)                ; 0a29 fc
 	LR   draw.param, A       ; 0a2a 50
 	; Width
@@ -1193,7 +1193,7 @@ drawTimer:
 ; Draw hundreds digit
 	; Set character
 	LR   A,(IS)              ; 0a3c 4c
-	NI   .DIGIT_MASK         ; 0a3d 21 0f
+	NI   DIGIT_MASK          ; 0a3d 21 0f
 	LR   draw.param, A       ; 0a3f 50
 	; xpos -= xdelta
 	LI   .X_DELTA           ; 0a40 20 fb
@@ -2442,88 +2442,103 @@ shuffleGame: subroutine
 ; restartGame()
 ;  Top-Level Procedure
 ;
+; Does prep work necessary to restart (or start the game), such as drawing the
+;  playfield, clearing the timer, spawning the players and the first ball, and
+;  making sure the explosion flag is clear.
+
 restartGame: subroutine
-	; Draw playfield
+
+; Draw playfield walls
+.FIELD_X = $10
+.FIELD_W = $49
+.FIELD_H = $29
+
 	; Set rendering properties
-	LI   DRAW_RECT            ; 0d54 20 80
+	LI   DRAW_RECT           ; 0d54 20 80
 	LR   draw.param, A       ; 0d56 50
 	; Set x pos
-	LI   $10                 ; 0d57 20 10
+	LI   .FIELD_X            ; 0d57 20 10
 	LR   draw.xpos, A        ; 0d59 51
-	; Set ypos and color
-	AI   RED + 0             ; 0d5a 24 80
+	; Set color (and ypos)
+	AI   RED                 ; 0d5a 24 80
 	LR   draw.ypos, A        ; 0d5c 52
 	; Set width
-	LI   $49                 ; 0d5d 20 49
+	LI   .FIELD_W            ; 0d5d 20 49
 	LR   draw.width, A       ; 0d5f 54
 	; Set height
-	LI   $29                 ; 0d60 20 29
+	LI   .FIELD_H            ; 0d60 20 29
 	LR   draw.height, A      ; 0d62 55
 	; Draw box
-	PI   drawBox               ; 0d63 28 08 62
+	PI   drawBox             ; 0d63 28 08 62
 
-	; Draw inner box
-	; xpos = o62
+; Draw inner box of playfield
+.tempSize = $3
+
+	; xpos = wall.left
 	SETISAR wall.left        ; 0d66 66 6a
 	LR   A,(IS)              ; 0d68 4c
 	LR   draw.xpos, A        ; 0d69 51
-	; width = -(o62 + o60)
+
+	; width = -(wall.left + wall.rightEnemy) + enemySize
 	SETISARL wall.rightEnemy ; 0d6a 68
 	AS   (IS)                ; 0d6b cc
 	COM                      ; 0d6c 18
 	INC                      ; 0d6d 1f
 	LR   draw.width, A       ; 0d6e 54
-	
-	; Add the enemy size to the width
-	; r3 = (reg_a & $30) >> 4
-	; width += r3
+
 	LI   MASK_ENEMY_SIZE     ; 0d6f 20 30
 	NS   main.gameSettings   ; 0d71 fa
 	SR   4                   ; 0d72 14
-	LR   $3,A                ; 0d73 53
+	LR   .tempSize,A         ; 0d73 53
+
 	AS   draw.width          ; 0d74 c4
 	LR   draw.width, A       ; 0d75 54
 	
-	; set ypos (color is blank)
+	; Set ypos (color is blank)
 	SETISARL wall.upper      ; 0d76 6d
 	LR   A,(IS)              ; 0d77 4c
 	LR   draw.ypos, A        ; 0d78 52
-	; height = -(top - bottom) + temp // temp is enemy size
+	
+	; height = -(wall.top - wall.lowerEnemy) + enemySize
 	SETISARL wall.lowerEnemy ; 0d79 6b
 	AS   (IS)                ; 0d7a cc
 	COM                      ; 0d7b 18
 	INC                      ; 0d7c 1f
-	AS   $3                  ; 0d7d c3
+	AS   .tempSize           ; 0d7d c3
 	LR   draw.height, A      ; 0d7e 55
+	
 	; Set rendering properties
-	LI   DRAW_RECT            ; 0d7f 20 80
+	LI   DRAW_RECT           ; 0d7f 20 80
 	LR   draw.param, A       ; 0d81 50
-	; Draw inner box
+
+	; Draw
 	PI   drawBox             ; 0d82 28 08 62
 	
-	; timer = 0
+; Clear timer
 	SETISAR timer.hi         ; 0d85 66 6e
 	CLR                      ; 0d87 70
 	LR   (IS)+,A             ; 0d88 5d
 	LR   (IS)+,A             ; 0d89 5d
 
-	; spawn the player balls
-	CLR                  ; 0d8a 70
+; Spawn the balls
+	; Spawn the players
+	CLR                      ; 0d8a 70
 .spawnLoop:          
 	LR   main.curBall, A     ; 0d8b 5b
 	PI   spawnBall           ; 0d8c 28 09 c2
+	
 	LR   A, main.curBall     ; 0d8f 4b
 	INC                      ; 0d90 1f
 	CI   [MAX_PLAYERS-1]     ; 0d91 25 01
 	BC   .spawnLoop          ; 0d93 82 f7
 
-	; spawn the first enemy ball
+	; Spawn the first enemy ball
 	SETISAR balls.count      ; 0d95 65 6e
 	LR   (IS),A              ; 0d97 5c
 	LR   main.curBall, A     ; 0d98 5b
 	PI   spawnBall           ; 0d99 28 09 c2
 
-	; bit 7 of o72 is the explosion flag
+; Clear the the explosion flag
 	SETISAR explosionFlag    ; 0d9c 67 6a
 	CLR                      ; 0d9e 70
 	LR   (IS),A              ; 0d9f 5c
@@ -2533,12 +2548,20 @@ restartGame: subroutine
 ;-------------------------------------------------------------------------------
 ; mainLoop()
 ;  Top-Level Procedure
+;
+; Clears the sound, draws the timer, runs a delay function, processes the enemy
+;  balls, processes the player balls, and repeats until somebody loses.
+;
+; Note that since the Channel F lacks vsync or any sort of interval timer, that
+;  the game needs to use a delay function to keep the game running at a
+;  consistent and reasonable speed.
+
 mainLoop: subroutine
 	; Clear sound
 	CLR                      ; 0da0 70
 	OUTS 5                   ; 0da1 b5
 				
-	; Change delay index according to the timer
+; Change delay index according to the timer
 	; if (timer.hi > 10)
 	;   delay index = 10
 	; else
@@ -2554,29 +2577,30 @@ mainLoop: subroutine
 	LR   (IS),A              ; 0dac 5c
 	SETISARU timer.lo        ; 0dad 66
 
-	; Increment 16-bit BCD timer
+; Increment 16-bit BCD timer
 	; timer.lo++
 	LI   $01 + BCD_ADJUST    ; 0dae 20 67
 	ASD  (IS)                ; 0db0 dc
 	LR   (IS)-,A             ; 0db1 5e
-	BNC   main.setTimerPos   ; 0db2 92 12
+	BNC   .setTimerPos       ; 0db2 92 12
 	; if carry, timer.hi++
 	LI   $01 + BCD_ADJUST    ; 0db4 20 67
 	ASD  (IS)                ; 0db6 dc
 	LR   (IS)+,A             ; 0db7 5d
 	; check if hundreds digit is zero
-	NI   %00001111           ; 0db8 21 0f
-	BNZ  main.setTimerPos    ; 0dba 94 0a
+	NI   DIGIT_MASK          ; 0db8 21 0f
+	BNZ  .setTimerPos        ; 0dba 94 0a
 	; if so, check if tens and ones digits are zero				
 	CLR                      ; 0dbc 70
 	AS   (IS)                ; 0dbd cc
-	BNZ  main.setTimerPos    ; 0dbe 94 06
+	BNZ  .setTimerPos        ; 0dbe 94 06
 	; if so, set the explosion flag
 	SETISAR explosionFlag    ; 0dc0 67 6a
 	LI   MASK_EXPLODE        ; 0dc2 20 80
 	LR   (IS),A              ; 0dc4 5c
 
-main.setTimerPos:          
+; Handle Drawing of the timer
+.setTimerPos:          
 	; Display timer
 	; Check if 1 or 2 player
 	SETISAR gameMode         ; 0dc5 67 6d
@@ -2584,10 +2608,10 @@ main.setTimerPos:
 	NS   (IS)                ; 0dc8 fc
 	; Display in middle if 2 player mode
 	LI   $39                 ; 0dc9 20 39
-	BNZ  main.drawTimer      ; 0dcb 94 03
+	BNZ  .drawTimer          ; 0dcb 94 03
 	; Display to left if 1 player mode
 	LI   $1f                 ; 0dcd 20 1f
-main.drawTimer:          
+.drawTimer:          
 	LR   drawTimer.xpos, A   ; 0dcf 50
 	; Set y pos (or color ?)
 	LI   $80                 ; 0dd0 20 80
@@ -2596,6 +2620,7 @@ main.drawTimer:
 	SETISAR timer.lo         ; 0dd3 66 6f
 	PI   drawTimer           ; 0dd5 28 0a 20
 
+; Perform the delay (to keep the game speed consistent)
 	; delay(delayIndex)
 	SETISAR delayIndex       ; 0dd8 65 6f
 	LR   A,(IS)              ; 0dda 4c
@@ -2615,7 +2640,7 @@ main.drawTimer:
 	INC                      ; 0de7 1f
 	AS   main.curBall        ; 0de8 cb
 	; branch ahead if so
-	BP   main.ballLoopInit   ; 0de9 81 0d
+	BP   .ballLoopInit       ; 0de9 81 0d
 
 	; curBall = delayIndex
 	LR   A,(IS)              ; 0deb 4c
@@ -2629,14 +2654,15 @@ main.drawTimer:
 	NS   (IS)+               ; 0df4 fd
 	AS   (IS)-               ; 0df5 ce
 	LR   (IS),A              ; 0df6 5c
-				
-main.ballLoopInit:          
+
+; Handle enemy balls
+.ballLoopInit:
 	SETISAR balls.count      ; 0df7 65 6e
 	LI   %00001111           ; 0df9 20 0f
 	NS   (IS)                ; 0dfb fc
 	LR   main.curBall, A     ; 0dfc 5b
 				
-main.ballLoop:          
+.ballLoop:          
 	; doBall.size = enemy ball size
 	SETISAR doBall.size      ; 0dfd 67 68
 	LI   MASK_ENEMY_SIZE     ; 0dff 20 30
@@ -2656,8 +2682,9 @@ main.ballLoop:
 	DS   main.curBall        ; 0e0e 3b
 	LR   A,main.curBall      ; 0e0f 4b
 	CI   [MAX_PLAYERS-1]     ; 0e10 25 01
-	BNC   main.ballLoop      ; 0e12 92 ea
+	BNC   .ballLoop          ; 0e12 92 ea
 
+; Handle player balls
 	PI   doPlayers           ; 0e14 28 09 24
 
 	; doBall.size = player ball size
@@ -2679,31 +2706,31 @@ main.ballLoop:
 	; Handle player 1
 	LI   0                   ; 0e26 20 00
 	LR   main.curBall,A      ; 0e28 5b
-	PI   doBall          ; 0e29 28 0a 53
+	PI   doBall              ; 0e29 28 0a 53
 	
 	; Check if were doing 2 player mode
 	SETISAR gameMode         ; 0e2c 67 6d
 	LIS  1                   ; 0e2e 71
 	NS   (IS)                ; 0e2f fc
-	BZ   main.checkExplosion ; 0e30 84 05	
+	BZ   .checkExplosion     ; 0e30 84 05	
 	; If so handle player 2
 	LR   main.curBall,A      ; 0e32 5b
-	PI   doBall          ; 0e33 28 0a 53
+	PI   doBall              ; 0e33 28 0a 53
 
-main.checkExplosion:
+.checkExplosion:
 	; Loop back to beginning if explosion flag isn't set
 	SETISAR explosionFlag    ; 0e36 67 6a
 	CLR                      ; 0e38 70
 	AS   (IS)                ; 0e39 cc
-	BP   main.end            ; 0e3a 81 06
+	BP   .end                ; 0e3a 81 06
 	
 	; Clear explosion flag, and then explode
 	CLR                      ; 0e3c 70
 	LR   (IS),A              ; 0e3d 5c
 	JMP  explode             ; 0e3e 29 0f 6b
 
-main.end:          
-	JMP  mainLoop               ; 0e41 29 0d a0
+.end:
+	JMP  mainLoop            ; 0e41 29 0d a0
 ; end of mainLoop()
 ;-------------------------------------------------------------------------------
 
