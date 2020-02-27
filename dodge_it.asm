@@ -2587,68 +2587,74 @@ mainLoop: subroutine
 	LI   $01 + BCD_ADJUST    ; 0db4 20 67
 	ASD  (IS)                ; 0db6 dc
 	LR   (IS)+,A             ; 0db7 5d
-	; check if hundreds digit is zero
+	
+; Check if the explosion flag should be set
+	; Check if hundreds digit is zero
 	NI   DIGIT_MASK          ; 0db8 21 0f
 	BNZ  .setTimerPos        ; 0dba 94 0a
-	; if so, check if tens and ones digits are zero				
+	; If so, check if tens and ones digits are zero
 	CLR                      ; 0dbc 70
 	AS   (IS)                ; 0dbd cc
 	BNZ  .setTimerPos        ; 0dbe 94 06
-	; if so, set the explosion flag
+	; If so, set the explosion flag
 	SETISAR explosionFlag    ; 0dc0 67 6a
 	LI   MASK_EXPLODE        ; 0dc2 20 80
 	LR   (IS),A              ; 0dc4 5c
 
 ; Handle Drawing of the timer
-.setTimerPos:          
-	; Display timer
+.setTimerPos:
+.TIMER_X_1P = $1F
+.TIMER_X_2P = $39
 	; Check if 1 or 2 player
 	SETISAR gameMode         ; 0dc5 67 6d
 	LIS  MODE_2P_MASK        ; 0dc7 71
 	NS   (IS)                ; 0dc8 fc
 	; Display in middle if 2 player mode
-	LI   $39                 ; 0dc9 20 39
+	LI   .TIMER_X_2P         ; 0dc9 20 39
 	BNZ  .drawTimer          ; 0dcb 94 03
 	; Display to left if 1 player mode
-	LI   $1f                 ; 0dcd 20 1f
+	LI   .TIMER_X_1P         ; 0dcd 20 1f
 .drawTimer:          
 	LR   drawTimer.xpos, A   ; 0dcf 50
-	; Set y pos (or color ?)
-	LI   $80                 ; 0dd0 20 80
+	; Set color (drawTimer adds the ypos)
+	LI   RED                 ; 0dd0 20 80
 	LR   drawTimer.ypos, A   ; 0dd2 52
 	; Set ISAR to LSB of score
 	SETISAR timer.lo         ; 0dd3 66 6f
 	PI   drawTimer           ; 0dd5 28 0a 20
 
 ; Perform the delay (to keep the game speed consistent)
-	; delay(delayIndex)
+	; delayByTable(delayIndex)
 	SETISAR delayIndex       ; 0dd8 65 6f
 	LR   A,(IS)              ; 0dda 4c
 	LR   delay.index, A      ; 0ddb 50
 	PI   delayByTable        ; 0ddc 28 09 86
 
-	; set current ball to balls.count
+; Check if a new ball needs to be spawned
+	; curBall = balls.count
 	SETISAR balls.count      ; 0ddf 65 6e
 	LI   %00001111           ; 0de1 20 0f
 	NS   (IS)+               ; 0de3 fd
 	LR   main.curBall, A     ; 0de4 5b
 	
-	; ISAR is delayIndex
-	; check if curBall >= delayIndex
+	; ISAR is delayIndex here
+	; Check if curBall >= delayIndex
 	LR   A,(IS)              ; 0de5 4c
 	COM                      ; 0de6 18
 	INC                      ; 0de7 1f
 	AS   main.curBall        ; 0de8 cb
-	; branch ahead if so
+	; if so, branch ahead
 	BP   .ballLoopInit       ; 0de9 81 0d
+	; if not, spawn a new ball
 
 	; curBall = delayIndex
 	LR   A,(IS)              ; 0deb 4c
 	LR   main.curBall, A     ; 0dec 5b
-	
+
+	; Spawn new ball
 	PI   spawnBall           ; 0ded 28 09 c2
 	
-	; ball count = delayIndex (preserve upper nybble of ball count)
+	; balls.count = delayIndex (preserve upper nybble of ball count)
 	SETISAR balls.count      ; 0df0 65 6e
 	LI   %11110000           ; 0df2 20 f0
 	NS   (IS)+               ; 0df4 fd
@@ -2717,42 +2723,48 @@ mainLoop: subroutine
 	LR   main.curBall,A      ; 0e32 5b
 	PI   doBall              ; 0e33 28 0a 53
 
+; Deal with the explosion
 .checkExplosion:
 	; Loop back to beginning if explosion flag isn't set
 	SETISAR explosionFlag    ; 0e36 67 6a
 	CLR                      ; 0e38 70
 	AS   (IS)                ; 0e39 cc
-	BP   .end                ; 0e3a 81 06
+	BP   .endMain            ; 0e3a 81 06
 	
 	; Clear explosion flag, and then explode
 	CLR                      ; 0e3c 70
 	LR   (IS),A              ; 0e3d 5c
 	JMP  explode             ; 0e3e 29 0f 6b
 
-.end:
+.endMain:
 	JMP  mainLoop            ; 0e41 29 0d a0
 ; end of mainLoop()
 ;-------------------------------------------------------------------------------
 
-;----------------------------
+;-------------------------------------------------------------------------------
 ; gameOver()
 ;  Top-Level Procedure
-gameOver.spiralRadius = 046
+;
+; collision() jumps to here if the player comes in contact with an enemy ball
+;
+; This procedure jumps back to either shuffleGame() or restartGame() depending
+;  on whether the controller is pushed in.
 
 gameOver: subroutine
 
+; Make the multicolored spiral death effect
 	; ypos = $24, color = $80
-	LI   $80 | $24 ;$a4                 ; 0e44 20 a4
+	LI   RED | $24           ; 0e44 20 a4
 	LR   draw.ypos, A        ; 0e46 52
 	; spiralRadius = $14
-	SETISAR gameOver.spiralRadius ; 0e47 64 6e
+	SETISAR spiral.radius    ; 0e47 64 6e
 	LI   $14                 ; 0e49 20 14
 	LR   (IS),A              ; 0e4b 5c
 
 .spiralLoop:
 	PI   drawSpiral          ; 0e4c 28 0f 0a
 	; spiralRadius--
-	SETISAR gameOver.spiralRadius ; 0e4f 64 6e
+	SETISAR spiral.radius ; 0e4f 64 6e
 	DS   (IS)                ; 0e51 3c
 	; save flags
 	LR   J,W                 ; 0e52 1e
@@ -2765,7 +2777,7 @@ gameOver: subroutine
 	BNC  .setColor           ; 0e56 92 03
 	AI   $40                 ; 0e58 24 40
 .setColor:
-	NI   $c0                 ; 0e5a 21 c0
+	NI   MASK_COLOR          ; 0e5a 21 c0
 	AI   $24                 ; 0e5c 24 24
 	LR   draw.ypos,A         ; 0e5e 52
 	; restore flags
@@ -2773,176 +2785,176 @@ gameOver: subroutine
 	LR   W,J                 ; 0e5f 1d
 	BNZ  .spiralLoop         ; 0e60 94 eb
 
+; Wait a bit before clearing the spiral effect
 	; delayVariable($0)
-	CLR                  ; 0e62 70
+	CLR                      ; 0e62 70
 	LR   delay.count, A      ; 0e63 50
 	PI   delayVariable       ; 0e64 28 09 9a
 
+; Clear the spiral
 	; Set color depending on who died
-	; 1P - Red
-	; 2P, player 1 - Green
-	; 2P, player 2 - Blue
+	; 1P mode - Red
 	SETISAR gameMode         ; 0e67 67 6d
 	LIS  MODE_2P_MASK        ; 0e69 71
 	NS   (IS)                ; 0e6a fc
-	LI   $80                 ; 0e6b 20 80
-	BZ   gameOver.clearSpiral; 0e6d 84 0a
-
-	LISL 1                   ; 0e6f 69
+	LI   RED                 ; 0e6b 20 80
+	BZ   .clearSpiral        ; 0e6d 84 0a
+	; 2P mode, P1 - Green
+	SETISARL testBall        ; 0e6f 69
 	LIS  $1                  ; 0e70 71
 	NS   (IS)                ; 0e71 fc
-	LI   $C0                 ; 0e72 20 c0
-	BZ   gameOver.clearSpiral; 0e74 84 03
-
-	LI   $40                 ; 0e76 20 40
-
-gameOver.clearSpiral:
+	LI   GREEN               ; 0e72 20 c0
+	BZ   .clearSpiral        ; 0e74 84 03
+	; 2P mode, P2 - Blue
+	LI   BLUE                ; 0e76 20 40
+.clearSpiral:
 	; Set ypos
 	AI   $24                 ; 0e78 24 24
-	LR   $2,A                ; 0e7a 52
+	LR   draw.ypos,A         ; 0e7a 52
 
-	; draw spiral
-	SETISAR gameOver.spiralRadius ; 0e7b 64 6e
+	; Draw spiral
+	SETISAR spiral.radius    ; 0e7b 64 6e
 	LI   $14                 ; 0e7d 20 14
 	LR   (IS),A              ; 0e7f 5c
-	PI   drawSpiral               ; 0e80 28 0f 0a
+	PI   drawSpiral          ; 0e80 28 0f 0a
 
+; Delay a bit to allow the players time before input is polled later
 	; Delay
 	LI   $28                 ; 0e83 20 28
 	LR   delay.count,A       ; 0e85 50
 	PI   delayVariable       ; 0e86 28 09 9a
-	
+
+; Determine which case we should handle
 	; Check if two players
 	SETISAR gameMode         ; 0e89 67 6d
 	LIS  MODE_2P_MASK        ; 0e8b 71
 	NS   (IS)                ; 0e8c fc
 	; If so, jump ahead
-	BNZ  gameOver.2players   ; 0e8d 94 38
+	BNZ  .2Pcleanup          ; 0e8d 94 38
 
-;----------------------------
-; Game over cleanup - 1 player case
-	; One player case
+; -- Game over cleanup - 1 player mode -----------------------------------------
+.tempTimerHi = $6
+.tempTimerLo = $7
+
 	; r6/r7 = timer
 	SETISAR timer.hi         ; 0e8f 66 6e
 	LR   A,(IS)+             ; 0e91 4d
-	LR   $6,A                ; 0e92 56
+	LR   .tempTimerHi,A      ; 0e92 56
 	LR   A,(IS)              ; 0e93 4c
-	LR   $7,A                ; 0e94 57
-	
+	LR   .tempTimerLo,A      ; 0e94 57
+
 	; check if tempTimer.hi < hiScore.hi
 	SETISAR hiScore.p1.hi    ; 0e95 65 6c
 	LR   A,(IS)+             ; 0e97 4d
 	COM                      ; 0e98 18
 	INC                      ; 0e99 1f
-	AS   $6                  ; 0e9a c6
+	AS   .tempTimerHi        ; 0e9a c6
 	; if so, jump ahead
-	BM   gameOver.1pEnd      ; 0e9b 91 16
+	BM   .delayP1            ; 0e9b 91 16
 	; else, check if tempTimer.hi != hiScore.hi
 	;  if so, replace the old high score
-	BNZ  gameOver.1pHiScore  ; 0e9d 94 07
+	BNZ  .newHighScore       ; 0e9d 94 07
 	; else, check if tempTimer.lo < hiScore.lo
 	LR   A,(IS)              ; 0e9f 4c
 	COM                      ; 0ea0 18
 	INC                      ; 0ea1 1f
-	AS   $7                  ; 0ea2 c7
+	AS   .tempTimerLo        ; 0ea2 c7
 	; if so, jump ahead
-	BM   gameOver.1pEnd      ; 0ea3 91 0e
+	BM   .delayP1            ; 0ea3 91 0e
 	; else, replace the old high score
 
-	; Draw score
-gameOver.1pHiScore:
+; Draw score
+.newHighScore:
 	; hiScore = tempTimer
-	LR   A,$7                ; 0ea5 47
+	LR   A,.tempTimerLo      ; 0ea5 47
 	LR   (IS)-,A             ; 0ea6 5e
-	LR   A,$6                ; 0ea7 46
+	LR   A,.tempTimerHi      ; 0ea7 46
 	LR   (IS)+,A             ; 0ea8 5d
 	; Set color
-	LI   $40                 ; 0ea9 20 40
+	LI   BLUE                ; 0ea9 20 40
 	LR   drawTimer.ypos, A   ; 0eab 52
 	; Set xpos
 	LI   $54                 ; 0eac 20 54
 	LR   drawTimer.xpos, A   ; 0eae 50
 	PI   drawTimer           ; 0eaf 28 0a 20
 
-gameOver.1pEnd:
+.delayP1:
 	; Delay
 	LI   $40                 ; 0eb2 20 40
 	LR   delay.count, A      ; 0eb4 50
 	PI   delayVariable       ; 0eb5 28 09 9a
-	
+
 	; Read controllers
 	PI   readInput           ; 0eb8 28 09 10
-	
+
 	; If controller is pushed, keep gametype
-	LISL 0                   ; 0ebb 68
+	SETISARL input.p1        ; 0ebb 68
 	CLR                      ; 0ebc 70
 	AS   (IS)                ; 0ebd cc
-	BM   gameOver.gotoShuffle; 0ebe 91 04
-				
-	JMP  restartGame               ; 0ec0 29 0d 54
-; end of 1 player case
-;----------------------------
+	BM   .gotoShuffle        ; 0ebe 91 04
 
-gameOver.gotoShuffle:
-	JMP  shuffleGame               ; 0ec3 29 0d 18
+	JMP  restartGame         ; 0ec0 29 0d 54
+; -- End of 1 player case ------------------------------------------------------
 
-;----------------------------
-; Game over cleanup - 2 player case
-gameOver.2players:
+.gotoShuffle:
+	JMP  shuffleGame         ; 0ec3 29 0d 18
+
+; -- Game over cleanup - 2 player mode -----------------------------------------
+.2Pcleanup:
 	; r6/r7 = timer
 	SETISAR timer.hi         ; 0ec6 66 6e
 	LR   A,(IS)+             ; 0ec8 4d
-	LR   $6,A                ; 0ec9 56
+	LR   .tempTimerHi,A      ; 0ec9 56
 	LR   A,(IS)              ; 0eca 4c
-	LR   $7,A                ; 0ecb 57
+	LR   .tempTimerLo,A      ; 0ecb 57
 	
 	; Check who died
-	SETISAR 071              ; 0ecc 67 69
+	SETISAR testBall         ; 0ecc 67 69
 	LIS  $1                  ; 0ece 71
 	NS   (IS)                ; 0ecf fc
-	BNZ  gameOver.2pSetParams; 0ed0 94 0b
+	BNZ  .P1survived         ; 0ed0 94 0b
 
 	; Set parameters for player 2
 	; set ypos (and color)
-	LI   $c0                 ; 0ed2 20 c0
+	LI   GREEN               ; 0ed2 20 c0
 	LR   drawTimer.ypos,A    ; 0ed4 52
 	; set xpos
 	LI   $54                 ; 0ed5 20 54
 	LR   drawTimer.xpos,A    ; 0ed7 50
 	; player 2 hi score? (TODO: verify)
 	SETISAR hiScore.p2.lo    ; 0ed8 67 6c
-	BR   gameOver.2pHiScore  ; 0eda 90 09
+	BR   .addHiScore         ; 0eda 90 09
 
-gameOver.2pSetParams:
+.P1survived:
 	; Set drawing parameters for player 1
 	SETISAR hiScore.p1.lo    ; 0edc 65 6d
-	; set ypos (or maybe color?)
-	LI   $40                 ; 0ede 20 40
+	; Set color
+	LI   BLUE                ; 0ede 20 40
 	LR   drawTimer.ypos,A    ; 0ee0 52
 	; set xpos
 	LI   $1f                 ; 0ee1 20 1f
 	LR   drawTimer.xpos,A    ; 0ee3 50
 
-gameOver.2pHiScore:
+.addHiScore:
 	; add the current timer to the winning player's high score
 	; hiScore.lo += tempTimer.lo
-	LR   A,$7                ; 0ee4 47
+	LR   A,.tempTimerLo      ; 0ee4 47
 	AS   (IS)                ; 0ee5 cc
 	LR   (IS),A              ; 0ee6 5c
 	; Add zero in BCD to adjust score and check carry flag (what the heck?)
 	LI   0 + BCD_ADJUST      ; 0ee7 20 66
 	ASD  (IS)                ; 0ee9 dc
 	LR   (IS)-,A             ; 0eea 5e
-	BNC   gameOver.2pHiScoreHiByte ; 0eeb 92 05
+	BNC   .addHiScoreHiByte  ; 0eeb 92 05
 	; Carry
 	LI   1 + BCD_ADJUST      ; 0eed 20 67
 	ASD  (IS)                ; 0eef dc
 	LR   (IS),A              ; 0ef0 5c
 
-gameOver.2pHiScoreHiByte:
+.addHiScoreHiByte:
 	; hiScore.hi += tempTimer.hi
 	LR   A,(IS)              ; 0ef1 4c
-	AS   $6                  ; 0ef2 c6
+	AS   .tempTimerHi        ; 0ef2 c6
 	LR   (IS),A              ; 0ef3 5c
 	; Add zero in BCD to adjust score (seriously, what the heck?)
 	LI   0 + BCD_ADJUST      ; 0ef4 20 66
@@ -2950,6 +2962,8 @@ gameOver.2pHiScoreHiByte:
 	LR   (IS)+,A             ; 0ef7 5d
 
 	PI   drawTimer           ; 0ef8 28 0a 20
+
+; There is no delay here, unlike in 1 player mode!
 
 	; Read controllers
 	PI   readInput           ; 0efb 28 09 10
@@ -2959,30 +2973,35 @@ gameOver.2pHiScoreHiByte:
 	SETISARL input.p1        ; 0efe 68
 	CLR                      ; 0eff 70
 	AS   (IS)+               ; 0f00 cd
-	BM   gameOver.gotoShuffle; 0f01 91 c1
+	BM   .gotoShuffle        ; 0f01 91 c1
 
 	; Player 2
 	CLR                      ; 0f03 70
 	AS   (IS)                ; 0f04 cc
-	BM   gameOver.gotoShuffle; 0f05 91 bd
+	BM   .gotoShuffle        ; 0f05 91 bd
 
 	; Else, just restart the current game
-	JMP  restartGame               ; 0f07 29 0d 54
-; end of 2 player case
-; end of game over procedure
-;----------------------------
-				
+	JMP  restartGame         ; 0f07 29 0d 54
+; -- End of 2 player case ------------------------------------------------------
+
+; end of gameOver()
+;-------------------------------------------------------------------------------
+
 ;-----------------------------
 ; Draw Spiral (for death animation)
 ; mid-level function
 ; 
+
+; == Arguments ==
+spiral.radius = 046    ; o46 - spiral radius
 ; r1 - X pos
 ; NOT r2 - Y pos (this is set in this function)
 ; r4 - Width
 ; r5 - Height
+
 drawSpiral: subroutine
 
-; Locals
+; == Locals ==
 ; Note: These take the place of variables used while the game is being played!
 spiral.hdiameter = 024 ; o24 - horizontal diameter
 spiral.hcount = 025    ; o25 - horizontal counter
@@ -2994,34 +3013,34 @@ spiral.lapCount = 036  ; o36 - spiral lap counter
 	; Set properties to draw a rect
 	LI   DRAW_RECT           ; 0f0b 20 80
 	LR   draw.param, A       ; 0f0d 50
-	
+
 	; xpos = $34
 	; Note: ypos is set before entering this function
 	LI   $34                 ; 0f0e 20 34
 	LR   draw.xpos, A        ; 0f10 51
-	
+
 	SETISAR spiral.hdiameter              ; 0f11 62 6c
-	
+
 	; Set width/height to 1
 	LIS  $1                  ; 0f13 71
 	LR   draw.width, A       ; 0f14 54
 	LR   draw.height, A      ; 0f15 55
-	
+
 	; Set all spiral counters to 1 (o24, o25, o26, o27)
 	LR   (IS)+,A             ; 0f16 5d ;is = o24
 	LR   (IS)+,A             ; 0f17 5d ;is = o25
 	LR   (IS)+,A             ; 0f18 5d ;is = o26
 	LR   (IS)-,A             ; 0f19 5e ;is = o27
-	
+
 	; spiral lap counter = spiral radius
-	SETISARU gameOver.spiralRadius ; 0f1a 64
+	SETISARU spiral.radius   ; 0f1a 64
 	LR   A,(IS)              ; 0f1b 4c ; is = o46
 	SETISARU spiral.lapCount ; 0f1c 63
 	LR   (IS),A              ; 0f1d 5c ; is = o36
-	
+
 	; set ISAR
 	SETISARU spiral.vcount   ; 0f1e 62
-	
+
 	; dummy arithmetic operation
 	LIS  $1                  ; 0f1f 71
 	SL   1                   ; 0f20 13
@@ -3030,18 +3049,19 @@ spiral.lapCount = 036  ; o36 - spiral lap counter
 	LR   J,W                 ; 0f21 1e ; save flags
 
 	PI   drawBox             ; 0f22 28 08 62
-drawSpiral.plotUp: ; plot up
+
+.plotUp:
 	; ypos--
 	DS   draw.ypos           ; 0f25 32
 	PI   drawBox             ; 0f26 28 08 62
 	; vcount-- (o26)
 	DS   (IS)                ; 0f29 3c ; is = 0x16
 	; loop until vcount reaches 0
-	BNZ  drawSpiral.plotUp   ; 0f2a 94 fa
-	
+	BNZ  .plotUp             ; 0f2a 94 fa
+
 	; goto exit if o36 (spiral lap counter) is zero
 	LR   W,J                 ; 0f2c 1d ; restore flags
-	BZ   drawSpiral.exit     ; 0f2d 84 3b
+	BZ   .exit     ; 0f2d 84 3b
 
 	; vdiameter++ (o27)
 	LR   A,(IS)+             ; 0f2f 4d
@@ -3051,7 +3071,7 @@ drawSpiral.plotUp: ; plot up
 	; vcount = vdiameter
 	LR   (IS)-,A             ; 0f33 5e ;is=o26
 									   ;is=o25
-drawSpiral.plotRight: ; plot right         
+.plotRight:
 	; xpos++
 	LR   A, draw.xpos        ; 0f34 41
 	INC                      ; 0f35 1f
@@ -3060,7 +3080,7 @@ drawSpiral.plotRight: ; plot right
 	; hcount-- (o25)
 	DS   (IS)                ; 0f3a 3c
 	; loop until hcount reaches 0
-	BNZ  drawSpiral.plotRight; 0f3b 94 f8
+	BNZ  .plotRight          ; 0f3b 94 f8
 	
 	; Clear sound
 	CLR                      ; 0f3d 70
@@ -3074,15 +3094,15 @@ drawSpiral.plotRight: ; plot right
 	; hcount = hdiameter
 	LR   (IS)+,A             ; 0f43 5d ;is=o25
 									   ;is=o26
-drawSpiral.plotDown: ; plot down
+.plotDown:
 	; ypos++
 	LR   A, draw.ypos        ; 0f44 42
 	INC                      ; 0f45 1f
 	LR   draw.ypos, A        ; 0f46 52
 	PI   drawBox             ; 0f47 28 08 62
 	; vcount-- (o26)
-	DS   (IS)                 ; 0f4a 3c
-	BNZ  drawSpiral.plotDown ; 0f4b 94 f8
+	DS   (IS)                ; 0f4a 3c
+	BNZ  .plotDown           ; 0f4b 94 f8
 
 	; vdiameter++ (o27)
 	LR   A,(IS)+             ; 0f4d 4d ;is=o26
@@ -3093,13 +3113,13 @@ drawSpiral.plotDown: ; plot down
 	; o26 = o27
 	LR   (IS)-,A             ; 0f51 5e ;is=o26
 									   ;is=o25
-drawSpiral.plotLeft: ; plot left
+.plotLeft:
 	; xpos--
 	DS   draw.xpos           ; 0f52 31
 	PI   drawBox             ; 0f53 28 08 62
 	; hcount-- (o25)
-	DS   (IS)                 ; 0f56 3c
-	BNZ  drawSpiral.plotLeft  ; 0f57 94 fa
+	DS   (IS)                ; 0f56 3c
+	BNZ  .plotLeft           ; 0f57 94 fa
 
 	; hdiameter++ (o24) 
 	LR   A,(IS)-             ; 0f59 4e ;is=o25
@@ -3113,20 +3133,20 @@ drawSpiral.plotLeft: ; plot left
 	SETISARU spiral.lapCount ; 0f5e 63
 	DS   (IS)                ; 0f5f 3c 
 	SETISARU spiral.vcount   ; 0f60 62
-	; save flags (to be used above shortly after drawSpiral.plotUp)
+	; save flags (to be used above shortly after .plotUp)
 	LR   J,W                 ; 0f61 1e
 				
 	; Play sound
 	LR   A,$2                ; 0f62 42
 	OUTS 5                   ; 0f63 b5
 	
-	BNZ  drawSpiral.plotUp   ; 0f64 94 c0
+	BNZ  .plotUp             ; 0f64 94 c0
 	
 	; vcount--
 	DS   (IS)                ; 0f66 3c ;is=o26
-	BR   drawSpiral.plotUp   ; 0f67 90 bd
+	BR   .plotUp             ; 0f67 90 bd
 	
-drawSpiral.exit: ; Return
+.exit:
 	LR   P,K                 ; 0f69 09
 	POP                      ; 0f6a 1c
 ; end drawSpiral()
