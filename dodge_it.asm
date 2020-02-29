@@ -103,6 +103,12 @@ FIELD_CORNER = WALL_MIN ; Top left corner of box, as rendered
 FIELD_WIDTH  = WALL_XMAX - WALL_MIN + 1 ; $49
 FIELD_HEIGHT = WALL_YMAX - WALL_MIN + 1 ; $29
 
+; Constants to spawn the balls at the edges of the field
+SPAWN_XMIN = WALL_MIN
+SPAWN_XMAX = WALL_XMAX-1
+SPAWN_YMIN = WALL_MIN
+SPAWN_YMAX = WALL_YMAX-1
+
 ; -- Timers --------------------------------------------------------------------
 
 ; Each of these values is 2 bytes of binary-coded decimal. 
@@ -1064,10 +1070,6 @@ spawnBall: subroutine
 .ypos = $2
 
 ; == Local Constants ==
-.XMIN = $10
-.XMAX = $57
-.YMIN = $10
-.YMAX = $37
 .SPEED = %01010101
 .PLAYER_Y = $23
 .PLAYER1_X = $33
@@ -1079,18 +1081,18 @@ spawnBall: subroutine
 
 ; xpos = rng.hi
 	LR   A, RNG.regHi        ; 09c6 46
-	CI   .XMIN               ; 09c7 25 10
+	CI   SPAWN_XMIN          ; 09c7 25 10
 	BC   .reroll             ; 09c9 82 f9
-	CI   .XMAX               ; 09cb 25 57
+	CI   SPAWN_XMAX          ; 09cb 25 57
 	BNC  .reroll             ; 09cd 92 f5
 
 	LR   .xpos,A             ; 09cf 51
 
 ; ypos = rng.lo
 	LR   A, RNG.regLo        ; 09d0 47
-	CI   .YMIN               ; 09d1 25 10
+	CI   SPAWN_YMIN          ; 09d1 25 10
 	BC   .reroll             ; 09d3 82 ef
-	CI   .YMAX               ; 09d5 25 37
+	CI   SPAWN_YMAX          ; 09d5 25 37
 	BNC  .reroll             ; 09d7 92 eb
 
 	LR   .ypos,A             ; 09d9 52
@@ -1122,7 +1124,7 @@ spawnBall: subroutine
 .north:
 	; ypos = 0x11
 	; ydir = sount
-	LI   .YMIN+1             ; 09ee 20 11
+	LI   SPAWN_YMIN+1        ; 09ee 20 11
 	LR   .ypos,A             ; 09f0 52
 	BR   .spawnPlayers       ; 09f1 90 1a
 	
@@ -1134,7 +1136,7 @@ spawnBall: subroutine
 	SR   4                   ; 09f6 14
 	COM                      ; 09f7 18
 	INC                      ; 09f8 1f
-	AI   MASK_DIRECTION|(.XMAX+1) ; 09f9 24 d8
+	AI   MASK_DIRECTION|(SPAWN_XMAX+1) ; 09f9 24 d8
 	LR   .xpos,A             ; 09fb 51
 	BR   .spawnPlayers       ; 09fc 90 0f
 
@@ -1146,14 +1148,14 @@ spawnBall: subroutine
 	SR   4                   ; 0a01 14
 	COM                      ; 0a02 18
 	INC                      ; 0a03 1f
-	AI   MASK_DIRECTION|(.YMAX+1) ; 0a04 24 b8
+	AI   MASK_DIRECTION|(SPAWN_YMAX+1) ; 0a04 24 b8
 	LR   .ypos,A             ; 0a06 52
 	BR   .spawnPlayers       ; 0a07 90 04
 
 .west:
 	; xpos = 0x11
 	; xdir = east
-	LI   .XMIN+1             ; 0a09 20 11
+	LI   SPAWN_XMIN+1        ; 0a09 20 11
 	LR   .xpos,A             ; 0a0b 51
 
 .spawnPlayers:
