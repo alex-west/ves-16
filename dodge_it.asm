@@ -19,26 +19,15 @@
 	processor f8
 
 	include "ves.h"
-	
-Reset: equ $0000
 
 ;-------------------------------------------------------------------------------
-; Scratchpad Registers
+; Common register definitions
+;
+; Definitions for common registers, bitfields, and constants. Local registers
+;  and function arguments are generally not included here.
 
-main.gameSettings = $A
-MASK_PLAYER_SIZE  = %11000000
-MASK_ENEMY_SIZE   = %00110000
-MASK_PLAYER_SPEED = %00001100
-MASK_ENEMY_SPEED  = %00000011
-
-main.curBall = $B
-PLAYER_1 = 0
-PLAYER_2 = 1
-
-; Indirect Registers (020-077)
-;  Scratchpad registers solely accessible via indirection (using the ISAR)
-
-; Ball Properties
+; -- Ball Properties -----------------------------------------------------------
+;
 ;  The x and y positions are fairly straightforward. The xpos is 7 bits, and 
 ;   the ypos is 6 bits. Velocity is a bit more complicated.
 ;
@@ -58,9 +47,19 @@ PLAYER_2 = 1
 ;
 ; Astute observers will note that bit 6 the in y position remains unused, and 
 ;  the last byte of the velocity array has an unused nybble. Such waste...
+
+; Current ball being operated on
+main.curBall = $B
+PLAYER_1 = 0
+PLAYER_2 = 1
+
+; Ball arrays
 balls.xpos = 020 ; Array
 balls.ypos = 033 ; Array
 balls.speed = 046 ; Bitpacked array
+
+balls.count = 056 ; Number of balls currently in play including players
+delayIndex  = 057 ; Basically the same as balls.count
 
 MASK_DIRECTION = %10000000
 MASK_POSITION  = %01111111
@@ -70,21 +69,18 @@ MASK_SPEED  = %00001111
 MASK_XSPEED = %11001100
 MASK_YSPEED = %00110011
 
-balls.arraySize = $0B ; Constant
+MAX_BALLS   = 11
+MAX_PLAYERS = 2
+MAX_ENEMIES = 9
 
-; Player one's high score
-hiScore.p1.hi = 054
-hiScore.p1.lo = 055
-
-balls.count = 056
-delayIndex  = 057 ; Basically the same as balls.count
-
-; Arena Walls
+; -- Arena Walls ---------------------------------------------------------------
+;
 ; The left and top walls work how you'd expect. However, the right and bottom
 ;  walls are weird. Not only do they have different values for player and enemy
 ;  (to account for their different sizes), but they are also negative. In other
 ;  words, they give distances for how far the walls are from some point 256
-;  pixels away from the origin. It's weird and inexplicable
+;  pixels away from the origin. It's weird and inexplicable.
+
 wall.rightEnemy = 060
 wall.rightPlayer = 061
 wall.left = 062
@@ -92,37 +88,87 @@ wall.lowerEnemy = 063
 wall.lowerPlayer = 064
 wall.upper = 065
 
-; Timer
+; Constants used to generate the positions of the walls
+WALL_MIN  = $10 ; Most upper-left point possible to generate a field
+; Note: These two constants, contrary to the values they help set, are just
+;  simply based off the distance from the origin.
+WALL_XMAX = $58
+WALL_YMAX = $38
+
+WALL_X_OFFSET_MAX = $12
+WALL_Y_OFFSET_MAX = $0B
+
+; Constants to render border at the start of the game
+FIELD_CORNER = WALL_MIN ; Top left corner of box, as rendered
+FIELD_WIDTH  = WALL_XMAX - WALL_MIN + 1 ; $49
+FIELD_HEIGHT = WALL_YMAX - WALL_MIN + 1 ; $29
+
+; -- Timers --------------------------------------------------------------------
+
+; Each of these values is 2 bytes of binary-coded decimal. 
 timer.hi = 066
 timer.lo = 067
-DIGIT_MASK = $0F
-
-; These two registers are also used for a couple other things (TODO: Note those)
-input.p1 = 070 ; Left controller
-input.p2 = 071 ; Right controller
-
-explosionFlag = 072
-MASK_EXPLODE = %10000000
-
+hiScore.p1.hi = 054
+hiScore.p1.lo = 055
 hiScore.p2.hi = 073
 hiScore.p2.lo = 074
 
-; Game mode
-gameMode = 075
-MODE_CHOICE_MASK = %00000011
-MODE_SPEED_MASK = $02
-MODE_2P_MASK = $01
+; Used to get the lower nybble of a timer byte ("SR 4" can get the upper one)
+DIGIT_MASK = $0F
 
+; Parameters for drawing the timers' positions
+TIMER_X_LEFT = $1F
+TIMER_X_CENTER = $39
+TIMER_X_RIGHT = $54
+TIMER_Y_OFFSET = $A
+
+; -- Game mode -----------------------------------------------------------------
+
+; The lower two bits represent what button was pressed on the console. The upper
+;  six bits of this are randomized in shuffleGame(), but of those bits only the
+;  top one matters.
+gameMode = 075
+MODE_2P_MASK     = %00000001 ; Unset: 1 player, set: 2 players
+MODE_SPEED_MASK  = %00000010 ; Set: fast, unset: slow
+MODE_CHOICE_MASK = %00000011 ; Used to check if the above two bits are set
+; Set: fiddle with speed upon collision, unset: don't fiddle with speed
+; Note: It appears that this can only be set in shuffleGame(), and that it is
+;  cleared in explode()
+MODE_BOUNCE_MASK = %10000000
+
+; Set in shuffleGame()
+main.gameSettings = $A
+MASK_PLAYER_SIZE  = %11000000
+MASK_ENEMY_SIZE   = %00110000
+MASK_PLAYER_SPEED = %00001100
+MASK_ENEMY_SPEED  = %00000011
+
+; -- Misc Registers ------------------------------------------------------------
+
+; Yes, 070 and 071 have different semantics for different functions called from 
+;  the main loop.
+
+; Controller inputs. Written in readInput, and read in doPlayers and gameOver
+input.p1 = 070 ; Left controller
+input.p2 = 071 ; Right controller
+; Arguments for doBall
+doBall.size = 070
+doBall.speed = 071
+; Local register for collision()
+testBall = 071
+
+; If set, execute explode() at the end of the main loop
+explosionFlag = 072
+MASK_EXPLODE = %10000000
+
+; Randomly generated number
 RNG.seedHi = 076
 RNG.seedLo = 077
 
-;--------------------
-; Constants
-MAX_PLAYERS = 2
-MAX_ENEMIES = 9
-MAX_BALLS = 11
+; -- Misc Constants ------------------------------------------------------------
+; Most of these should probably be added to ves.h
 
-BCD_ADJUST = $66 ; This should probably be in ves.h
+BCD_ADJUST = $66
 
 ; Sounds
 SOUND_NONE  = %00000000 ; Silence
@@ -131,22 +177,20 @@ SOUND_500Hz = %10000000 ; 500Hz tone
 SOUND_120Hz = %11000000 ; 120Hz tone
 
 ; Graphics
-; blue, green, red: for P1, P2, and enemies
 BLUE  = $40
 RED   = $80
 GREEN = $C0
+
+MASK_COLOR     = %11000000
+MASK_SOUND     = %11000000
+MASK_NO_SOUND  = %00111111
 
 DRAW_ATTR_X = $7d
 DRAW_ATTR_W = 2
 DRAW_SCREEN_W = $80
 DRAW_SCREEN_H = $40
 
-CHAR_G = $A
-CHAR_QMARK = $B
-
-CHAR_WIDTH = $4
-CHAR_HEIGHT = $5
-
+; end of common register definitions
 ;-------------------------------------------------------------------------------
 
 	org $0800
@@ -160,50 +204,55 @@ CartridgeEntry:  JMP init
 ; Each character takes 5 nybbles of data, split across 5 bytes. Even numbered
 ;  characters take the left nybble while odd numbered characters take the right.
 
-graphicsData: ; 0805
-	; 0 1
+CHAR_WIDTH  = 4
+CHAR_HEIGHT = 5
+CHAR_G     = $A
+CHAR_QMARK = $B
+
+graphicsData:
+	; 0805 
 	db %01110010 ;  ███  █ 
 	db %01010110 ;  █ █ ██ 
 	db %01010010 ;  █ █  █ 
 	db %01010010 ;  █ █  █ 
 	db %01110111 ;  ███ ███
-	; 2 3
+	; 080a
 	db %01110111 ;  ███ ███
 	db %00010001 ;    █   █
 	db %01110011 ;  ███  ██
 	db %01000001 ;  █     █
 	db %01110111 ;  ███ ███
-	; 4 5
+	; 080f
 	db %01010111 ;  █ █ ███
 	db %01010100 ;  █ █ █  
 	db %01110111 ;  ███ ███
 	db %00010001 ;    █   █
 	db %00010111 ;    █ ███
-	; 6 7
+	; 0814
 	db %01000111 ;  █   ███
 	db %01000001 ;  █     █
 	db %01110001 ;  ███   █
 	db %01010001 ;  █ █   █
 	db %01110001 ;  ███   █
-	; 8 9
+	; 0819
 	db %01110111 ;  ███ ███
 	db %01010101 ;  █ █ █ █
 	db %01110111 ;  ███ ███
 	db %01010001 ;  █ █   █
 	db %01110001 ;  ███   █
-	; G ?
+	; 081e
 	db %11111111 ; ████████
 	db %10000001 ; █      █
 	db %10110010 ; █ ██  █ 
 	db %10010000 ; █  █    
 	db %11110010 ; ████  █ 
-	; F A
+	; 0823
 	db %01110111 ;  ███ ███
 	db %01000101 ;  █   █ █
 	db %01110111 ;  ███ ███
 	db %01000101 ;  █   █ █
 	db %01000101 ;  █   █ █
-	; S T
+	; 0828
 	db %01110111 ;  ███ ███
 	db %01000010 ;  █    █ 
 	db %01110010 ;  ███  █ 
@@ -214,28 +263,30 @@ graphicsData: ; 0805
 ; Data Tables
 
 ; Delay table A (easy)
-delayTableEasy:
+delayTableEasy: ; 082d
 	db $19, $16, $13, $11, $0e, $0c, $0a, $08, $06, $03, $01
 
 ; Delay table B (pro)
-delayTableHard:
+delayTableHard: ; 0838
 	db $0b, $0a, $09, $08, $07, $06, $05, $04, $03, $02, $01
 
 ; Bitmasks used while randomizing the game mode
-gameModeMasks:
-	db $C0, $30, $0C, $03, $FC ; 0843 c0 30 0c 03 fc
+gameModeMasks:  ; 0843
+	db $C0, $30, $0C, $03, $FC
 				
 ; This table is referenced but never read. Based on the code that references
 ;  this table, it likely pertained to the enemy speeds. (Also, there is a chance
 ;  that the endian-ness is wrong on these.)
-unusedSpeedTable:
-	dw $0000, $120B, $0B06, $0201 ; 0848 00 00 12 0b 0b 06 02 01
+unusedSpeedTable: ; 0848 00 00 12 0b 0b 06 02 01
+	dw $0000, $120B, $0B06, $0201
 
-ballColors: ; blue, green, red: for P1, P2, and enemies
-	db $40, $C0, $80 ; 0850 40 c0 80
-	
-menuChoices:
-	db $00, $01, $02, $03, $03  ; 0853 00 01 02 03 03
+; Colors of P1, P2, and enemies
+ballColors: ; 0850 40 c0 80
+	db BLUE, GREEN, RED
+
+; Table helps translate the button press to the game mode number
+menuChoices: ; 0853 
+	db $00, $01, $02, $03, $03
 
 ;-------------------------------------------------------------------------------
 ; draw(param, xpos, ypos, width, height)
@@ -260,13 +311,17 @@ menuChoices:
 ;
 ; Although this function modifies draw.xpos and draw.ypos, those variables are
 ;  set back to their original values upon returning from the function.
-;
+
 ; == Arguments ==
 draw.param  = 0 ; Drawing Parameter or Character Index
 draw.xpos   = 1 ; X Position
 draw.ypos   = 2 ; Y Position and Color
 draw.width  = 4 ; Width
 draw.height = 5 ; Width
+
+; Valid values for draw.param
+DRAW_RECT      = %10000000 ; Draw a rectangle
+DRAW_ATTRIBUTE = %11000000 ; Draw the attribute column
 
 ; == Entry Point A == (for drawing a character)
 drawChar: subroutine
@@ -277,14 +332,6 @@ drawChar: subroutine
 .ycount = 7 ; vertical counter
 .temp   = 8 ; helps calculate the data counter
 .color  = 8 ; color, as extracted from ypos
-
-; == Local constants ==
-DRAW_RECT      = %10000000 ; Draw a rectangle
-DRAW_ATTRIBUTE = %11000000 ; Draw the attribute column
-
-MASK_COLOR     = %11000000
-MASK_SOUND     = %11000000
-MASK_NO_SOUND  = %00111111
 
 ; Get the starting address of the desired character
 	; DC = graphicsData + param/2 + (param/2)*4
@@ -727,7 +774,7 @@ doPlayers: subroutine
 
 	; .ypos = ypos[curBall]
 	LR   A,IS                ; 093b 0a
-	AI   balls.arraySize     ; 093c 24 0b
+	AI   MAX_BALLS           ; 093c 24 0b
 	LR   IS,A                ; 093e 0b
 	LR   A,(IS)              ; 093f 4c
 	LR   $2,A                ; 0940 52
@@ -945,7 +992,7 @@ saveBall: subroutine
 	
 ; ypos[curBall] = saveBall.xpos
 	LR   A,IS                ; 09a8 0a
-	AI   balls.arraySize     ; 09a9 24 0b
+	AI   MAX_BALLS           ; 09a9 24 0b
 	LR   IS,A                ; 09ab 0b
 	LR   A,saveBall.ypos     ; 09ac 42
 	LR   (IS),A              ; 09ad 5c
@@ -1146,15 +1193,14 @@ spawnBall: subroutine
 ;  the upper-left corner of the ones digit (not the thousands digit).
 
 ; == Arguments ==
-; timer = ISAR
+; *timer = ISAR
 drawTimer.xpos = 0
 drawTimer.ypos = 2 ; and color
 
 drawTimer:          
 	LR   K,P                 ; 0a20 08
 	
-; == Local Constants ==
-.Y_OFFSET = $0A
+; == Local Constant ==
 .X_DELTA  = <[-5]
 	
 ; Draw ones digit
@@ -1162,7 +1208,7 @@ drawTimer:
 	LR   A, drawTimer.xpos   ; 0a21 40
 	LR   draw.xpos, A        ; 0a22 51
 	; Adjust ypos
-	LI   .Y_OFFSET           ; 0a23 20 0a
+	LI   TIMER_Y_OFFSET      ; 0a23 20 0a
 	AS   drawTimer.ypos      ; 0a25 c2
 	LR   draw.ypos, A        ; 0a26 52
 	; Set character
@@ -1237,8 +1283,8 @@ drawTimer:
 ;  the start of each part of the function.
 
 ; == Arguments ==
-doBall.size = 070
-doBall.speed = 071
+; doBall.size = 070
+; doBall.speed = 071
 ; main.curBall = $b
 
 doBall: subroutine
@@ -1256,7 +1302,7 @@ doBall: subroutine
 
 	; Load ypos
 	LR   A,IS                ; 0a5a 0a
-	AI   balls.arraySize     ; 0a5b 24 0b
+	AI   MAX_BALLS           ; 0a5b 24 0b
 	LR   IS,A                ; 0a5d 0b
 	LR   A,(IS)              ; 0a5e 4c
 
@@ -1656,27 +1702,20 @@ collision.return: ; The next function uses this to return as well
 ;-------------------------------------------------------------------------------
 ; collision()
 ;
-; Performs ball-ball collision detection.
+; Performs ball-ball collision detection against a single ball as specified by
+;  the input argument.
 ;
-; This function:
-; - Sets up the loop
-; - Tests collision along the x axis
-; - Tests collision along the y axis
-; - Jumps to game over
-; - Plays bumping sound
-; - Fiddles with x direction
-; - Fiddles with velocity
-; - Fiddles with y direction
-;
-; That's a lot of stuff.
-;
-; TODO: Write a better description here.
+; The ball specified by the caller is tested against every other active ball to
+;  see if they overlap along the x and y axes. If so, and if the ball being
+;  tested against is the player's ball, this function jumps directly to
+;  gameOver(). Otherwise, the x and y directions and speeds are fiddled with to 
+;  make them bounce off each other.
 
 ; == Arguments ==
 ; main.curBall = $b
 
 ; == Locals ==
-testBall = 071
+; testBall = 071
 mainBall.xpos = $1
 mainBall.ypos = $2
 
@@ -1732,7 +1771,7 @@ collision: subroutine
 	
 	; r2 = ypos[curBall]
 	LR   A,IS                ; 0b94 0a
-	AI   balls.arraySize     ; 0b95 24 0b
+	AI   MAX_BALLS           ; 0b95 24 0b
 	LR   IS,A                ; 0b97 0b
 	LR   A,(IS)              ; 0b98 4c
 	; Mask out the direction
@@ -1806,7 +1845,7 @@ collision: subroutine
 
 	; mainBall.ypos-testBall.ypos
 	LR   A,IS                ; 0bc6 0a
-	AI   balls.arraySize     ; 0bc7 24 0b
+	AI   MAX_BALLS           ; 0bc7 24 0b
 	LR   IS,A                ; 0bc9 0b
 	LR   A,(IS)              ; 0bca 4c
 	NI   MASK_YPOSITION      ; 0bcb 21 3f
@@ -1930,8 +1969,8 @@ collision: subroutine
 .otherSpeed = $4
 
 .checkMode:
-	; If bit 7 of gameMode is set, we mess with the speed
-	; TODO: Figure out where this bit is set (explode() clears this bit)
+	; If MODE_BOUNCE_MASK is set, we mess with the speed
+	;  Note: This bit is set in shuffleGame(), and is cleared in explode()
 	SETISAR gameMode         ; 0c20 67 6d
 	CLR                      ; 0c22 70
 	AS   (IS)                ; 0c23 cc
@@ -2028,17 +2067,13 @@ walls.max = $1
 walls.min = $2
 
 ; == Constants ==
-WALL_XMAX = $58
-WALL_YMAX = $38
-WALL_MIN  = $10
+
 
 setWalls: subroutine 
 	LR   K,P                 ; 0c5f 08
 
-; == Locals ==
+; == Local ==
 .tempWall = $4
-.X_OFFSET_MAX = $12
-.Y_OFFSET_MAX = $0B
 
 .reroll:
 	; Reroll RNG until r6 is non-zero
@@ -2059,11 +2094,11 @@ setWalls: subroutine
 	LR   A, RNG.regHi        ; 0c6a 46
 	BNZ  .clampY             ; 0c6b 94 05
 
-	CI   .X_OFFSET_MAX       ; 0c6d 25 12
+	CI   WALL_X_OFFSET_MAX   ; 0c6d 25 12
 	BR   .clampX             ; 0c6f 90 03
 
 .clampY:
-	CI   .Y_OFFSET_MAX       ; 0c71 25 0b
+	CI   WALL_Y_OFFSET_MAX   ; 0c71 25 0b
 .clampX:
 	BNC  .reroll             ; 0c73 92 ec
 
@@ -2353,9 +2388,6 @@ init: subroutine
 ;
 ; This function randomizes the game parameters such as player size, enemy size,
 ;  player speed, enemy speed, the upper six bits of gameMode, and the walls.
-;
-; TODO: Figure out if the upper six bits of gameMode are used for anything
-;  interesting or not.
 
 shuffleGame: subroutine
 	; Preserve the player and game speed bits of gameMode
@@ -2419,7 +2451,7 @@ shuffleGame: subroutine
 	NS   main.gameSettings   ; 0d40 fa
 	SL   1                   ; 0d41 13
 	ADC                      ; 0d42 8e
-	; Note: Perhaps the 2 bytes from this table was meant to be loaded into the
+	; Note: Perhaps the 2 bytes from this table were meant to be loaded into the
 	;  space that is now reserved for player 2's high score.
 
 ; Set playfield walls
@@ -2449,24 +2481,20 @@ shuffleGame: subroutine
 restartGame: subroutine
 
 ; Draw playfield walls
-.FIELD_X = $10
-.FIELD_W = $49
-.FIELD_H = $29
-
 	; Set rendering properties
 	LI   DRAW_RECT           ; 0d54 20 80
 	LR   draw.param, A       ; 0d56 50
 	; Set x pos
-	LI   .FIELD_X            ; 0d57 20 10
+	LI   FIELD_CORNER        ; 0d57 20 10
 	LR   draw.xpos, A        ; 0d59 51
 	; Set color (and ypos)
 	AI   RED                 ; 0d5a 24 80
 	LR   draw.ypos, A        ; 0d5c 52
 	; Set width
-	LI   .FIELD_W            ; 0d5d 20 49
+	LI   FIELD_WIDTH         ; 0d5d 20 49
 	LR   draw.width, A       ; 0d5f 54
 	; Set height
-	LI   .FIELD_H            ; 0d60 20 29
+	LI   FIELD_HEIGHT        ; 0d60 20 29
 	LR   draw.height, A      ; 0d62 55
 	; Draw box
 	PI   drawBox             ; 0d63 28 08 62
@@ -2603,17 +2631,15 @@ mainLoop: subroutine
 
 ; Handle Drawing of the timer
 .setTimerPos:
-.TIMER_X_1P = $1F
-.TIMER_X_2P = $39
 	; Check if 1 or 2 player
 	SETISAR gameMode         ; 0dc5 67 6d
 	LIS  MODE_2P_MASK        ; 0dc7 71
 	NS   (IS)                ; 0dc8 fc
 	; Display in middle if 2 player mode
-	LI   .TIMER_X_2P         ; 0dc9 20 39
+	LI   TIMER_X_CENTER      ; 0dc9 20 39
 	BNZ  .drawTimer          ; 0dcb 94 03
 	; Display to left if 1 player mode
-	LI   .TIMER_X_1P         ; 0dcd 20 1f
+	LI   TIMER_X_LEFT        ; 0dcd 20 1f
 .drawTimer:          
 	LR   drawTimer.xpos, A   ; 0dcf 50
 	; Set color (drawTimer adds the ypos)
@@ -2761,12 +2787,15 @@ mainLoop: subroutine
 
 gameOver: subroutine
 ; Make the multicolored spiral death effect
+.Y_CENTER = $24
+.MAX_RADIUS = $14
+
 	; ypos = $24, color = $80
-	LI   RED | $24           ; 0e44 20 a4
+	LI   RED | .Y_CENTER     ; 0e44 20 a4
 	LR   draw.ypos, A        ; 0e46 52
 	; spiralRadius = $14
 	SETISAR spiral.radius    ; 0e47 64 6e
-	LI   $14                 ; 0e49 20 14
+	LI   .MAX_RADIUS         ; 0e49 20 14
 	LR   (IS),A              ; 0e4b 5c
 
 .spiralLoop:
@@ -2786,7 +2815,7 @@ gameOver: subroutine
 	AI   $40                 ; 0e58 24 40
 .setColor:
 	NI   MASK_COLOR          ; 0e5a 21 c0
-	AI   $24                 ; 0e5c 24 24
+	AI   .Y_CENTER           ; 0e5c 24 24
 	LR   draw.ypos,A         ; 0e5e 52
 	; restore flags
 	; loop back if o46 != 0
@@ -2817,12 +2846,12 @@ gameOver: subroutine
 	LI   BLUE                ; 0e76 20 40
 .clearSpiral:
 	; Set ypos
-	AI   $24                 ; 0e78 24 24
+	AI   .Y_CENTER           ; 0e78 24 24
 	LR   draw.ypos,A         ; 0e7a 52
 
 	; Draw spiral
 	SETISAR spiral.radius    ; 0e7b 64 6e
-	LI   $14                 ; 0e7d 20 14
+	LI   .MAX_RADIUS         ; 0e7d 20 14
 	LR   (IS),A              ; 0e7f 5c
 	PI   drawSpiral          ; 0e80 28 0f 0a
 
@@ -2883,7 +2912,7 @@ gameOver: subroutine
 	LI   BLUE                ; 0ea9 20 40
 	LR   drawTimer.ypos, A   ; 0eab 52
 	; Set xpos
-	LI   $54                 ; 0eac 20 54
+	LI   TIMER_X_RIGHT       ; 0eac 20 54
 	LR   drawTimer.xpos, A   ; 0eae 50
 
 	PI   drawTimer           ; 0eaf 28 0a 20
@@ -2912,7 +2941,6 @@ gameOver: subroutine
 
 ; -- Game over cleanup - 2 player mode -----------------------------------------
 .2Pcleanup:
-
 ; Check who gets the timer added to their score
 	; tempTimer = timer
 	SETISAR timer.hi         ; 0ec6 66 6e
@@ -2932,20 +2960,21 @@ gameOver: subroutine
 	LI   GREEN               ; 0ed2 20 c0
 	LR   drawTimer.ypos,A    ; 0ed4 52
 	; set xpos
-	LI   $54                 ; 0ed5 20 54
+	LI   TIMER_X_RIGHT       ; 0ed5 20 54
 	LR   drawTimer.xpos,A    ; 0ed7 50
-	; player 2 hi score? (TODO: verify)
+	; Set ISAR
 	SETISAR hiScore.p2.lo    ; 0ed8 67 6c
 	BR   .addHiScore         ; 0eda 90 09
 
 ; Set drawTimer parameters for player 1
 .P1survived:
+	; Set ISAR
 	SETISAR hiScore.p1.lo    ; 0edc 65 6d
 	; Set color
 	LI   BLUE                ; 0ede 20 40
 	LR   drawTimer.ypos,A    ; 0ee0 52
 	; Set xpos
-	LI   $1f                 ; 0ee1 20 1f
+	LI   TIMER_X_LEFT        ; 0ee1 20 1f
 	LR   drawTimer.xpos,A    ; 0ee3 50
 
 ; Add the current timer to the winning player's high score
@@ -3275,7 +3304,7 @@ explode: subroutine
 	LR   (IS)+,A             ; 0f90 5d ; is=046
 	LR   (IS)+,A             ; 0f91 5d ; is=047
 
-	; Clear top bit of game mode (TODO: Find out why)
+	; Clear MODE_BOUNCE_MASK from gameMode
 	SETISAR gameMode         ; 0f92 67 6d
 	LR   A,(IS)              ; 0f94 4c
 	SL   1                   ; 0f95 13
@@ -3287,7 +3316,10 @@ explode: subroutine
 ; end explode()
 ;-------------------------------------------------------------------------------
 	
-    db $b2 ; Unused!
+	; Unused byte
+    db $b2
+	; This byte mirrors the $2b (NOP) in this cart's header.
+	; Coincidence or creative whimsy?
 
 	; Free space - 94 bytes!
 	db $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
