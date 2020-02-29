@@ -1,11 +1,9 @@
 ; VES.H
 ; Fairchild Channel F Header
-; Version x
+; Version 1.01, 2/NOVEMBER/2004
 
 VERSION_CHANNELF	= 101
 VERSION_VES		= 101
-
-; Ignore these paragraphs below for the moment. - alex
 
 ; THIS IS A PRELIMINARY RELEASE OF *THE* "STANDARD" VES.H
 ; THIS FILE IS EXPLICITLY SUPPORTED AS A DASM-PREFERRED COMPANION FILE
@@ -30,7 +28,12 @@ VERSION_VES		= 101
 ; 1.00  31/OCT/2004	- initial release
 
 
+
 ; Please contribute Channel-F header code to atari2600@taswegian.com
+
+
+
+;INCLUDE_DEPRECATED                 ; remove to DISABLE deprecated equates
 
 
 ;-------------------------------------------------------------------------------
@@ -51,89 +54,32 @@ COLOR_BLUE          = $80
 COLOR_GREEN         = $00
 COLOR_BACKGROUND    = $C0
 
-; TODO: Verify
-BG_COLOR_GREEN      = %00000000
-BG_COLOR_BLUE       = %00110000
-BG_COLOR_GRAY       = %11000000
-BG_COLOR_BLACK      = %11110000
-;BG_COLOR_BLACK      = %00 
-;BG_COLOR_GREY       = %01 
-;BG_COLOR_BLUE       = %10 
-;BG_COLOR_GREEN      = %11
-
 ; Alternate (European) spellings...
-COLOUR_RED          = COLOR_RED
+
+COLOUR_RES          = COLOR_RED
 COLOUR_BLUE         = COLOR_BLUE
 COLOUR_GREEN        = COLOR_GREEN
 COLOUR_BACKGROUND   = COLOR_BACKGROUND
 
 ;-------------------------------------------------------------------------------
-; Hand Controller 
+; DEPRECATED equates.
+; These present to be compatible with existing equate usage.  
+; DO NOT USE THESE IN NEW CODE -- WE WANT TO GET RID OF THEM!
 
-CONTROL_RIGHT    = %00000001  ;right
-CONTROL_LEFT     = %00000010  ;left
-CONTROL_BACKWARD = %00000100  ;backward
-CONTROL_FORWARD  = %00001000  ;forward
-CONTROL_CCW      = %00010000  ;counterclockwise
-CONTROL_CW       = %00100000  ;clockwise
-CONTROL_PULL     = %01000000  ;pull up
-CONTROL_PUSH     = %10000000  ;push down
+	IFCONST INCLUDE_DEPRECATED
 
-;-------------------------------------------------------------------------------
-; Console Buttons
+clrscrn             = BIOS_CLEAR_SCREEN         ; DEPRECATED!
+delay               = BIOS_DELAY                ; DEPRECATED!
+pushk               = BIOS_PUSH_K               ; DEPRECATED!
+popk                = BIOS_POP_K                ; DEPRECATED!
+drawchar            = BIOS_DRAW_CHARACTER       ; DEPRECATED!
 
-CONSOLE_1 = %00000001 ;button 1
-CONSOLE_2 = %00000010 ;button 2
-CONSOLE_3 = %00000100 ;button 3
-CONSOLE_4 = %00001000 ;button 4
+red                 = COLOR_RED                 ; DEPRECATED!
+blue                = COLOR_BLUE                ; DEPRECATED
+green               = COLOR_GREEN               ; DEPRECATED
+bkg                 = COLOR_BACKGROUND          ; DEPRECATED
 
-;-------------------------------------------------------------------------------
-; Alternate Register Names
-
-r0 = 0
-r1 = 1
-r2 = 2
-r3 = 3
-r4 = 4
-r5 = 5
-r6 = 6
-r7 = 7
-r8 = 8
-r9 = 9
-r10 = 10
-r11 = 11
-
-;-------------------------------------------------------------------------------
-; Mnemonics for the BT Instruction
-;  "If any of these flags are true, then branch"
-never = 0
-ifS   = 1
-ifC   = 2
-ifCS  = 3
-ifZ   = 4
-ifZS  = 5
-ifZC  = 6
-ifZCS = 7
-
-;-------------------------------------------------------------------------------
-; Mnemonics for the BF Instruction
-;  "If all of these flags are false, then branch"
-always    = $0
-ifNotS    = $1
-ifNotC    = $2
-ifNotCS   = $3
-ifNotZ    = $4
-ifNotZS   = $5
-ifNotZC   = $6
-ifNotZCS  = $7
-ifNotO    = $8
-ifNotOS   = $9
-ifNotOC   = $A
-ifNotOCS  = $B
-ifNotOZ   = $C
-ifNotOZS  = $D
-ifNotOZC  = $E
-ifNotOZCS = $F
+	ENDIF
 
 ;------------------------
 ; Schach RAM
@@ -183,7 +129,7 @@ ram		=	$2800					;location of RAM available in Schach cartridge
                 MAC PROMPTS_NOT
 prompts         SUBROUTINE
                 LR   K,P                 ; 
-                PI   BIOS_PUSH_K         ; 
+                PI   pushk               ; 
 .prompts2:      LI   $85                 ; red 5 (S)
                 LR   $0,A                ; 
                 PI   prompt              ; 
@@ -202,7 +148,7 @@ prompts         SUBROUTINE
                 LISU 3                   ; 
                 LISL 6                   ; 
                 LR   A,(IS)              ; 
-                as   4                   ;add the mode to the game #
+                as      4                                       ;add the mode to the game #
                 LR   (IS),A              ; 
                 BF   $0,.prompts2        ; 
                 ENDM
@@ -216,29 +162,6 @@ prompts         SUBROUTINE
 	lisu	[[{1}] >> 3]
 	lisl	[[{1}] & %111]
 	ENDM
-
-;-------------------------
-; SETISARU / SETISARL
-; Sets the corresponding ISAR octal nybble to the corresponding octal nybble
-; of the input argument
-
-	MAC SETISARU
-	lisu	[[[{1}] >> 3] & %111]
-	ENDM
-	
-	MAC SETISARL
-	lisl	[[{1}] & %111]
-	ENDM
-
-;--------------------------
-; neg
-; Takes the 2's complement of the accumulator
-
-	MAC neg
-	com
-	inc
-	ENDM
-	
 ;-------------------------------------------------------------------------------
 ; The following required for back-compatibility with code which does not use
 ; segments.

@@ -196,8 +196,44 @@ DRAW_ATTR_W = 2
 DRAW_SCREEN_W = $80
 DRAW_SCREEN_H = $40
 
+; Hand Controller 
+CONTROL_RIGHT    = %00000001  ;right
+CONTROL_LEFT     = %00000010  ;left
+; TODO: Should I change these to UP and DOWN to match the schematics?
+CONTROL_BACKWARD = %00000100  ;backward
+CONTROL_FORWARD  = %00001000  ;forward
+CONTROL_CCW      = %00010000  ;counterclockwise
+CONTROL_CW       = %00100000  ;clockwise
+; TODO: Should I change these to G_UP and G_DOWN to match the schematics?
+CONTROL_PULL     = %01000000  ;pull up
+CONTROL_PUSH     = %10000000  ;push down
+
 ; end of common register definitions
 ;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; Macro definitions
+
+; SETISARU
+;  Works like LISU, except you can use named registers with it. For example:
+;
+; testReg = 042
+; LISU testReg <--- This does not work
+; SETISARU testReg <--- This does work
+
+	MAC SETISARU
+	lisu	[[[{1}] >> 3] & %111]
+	ENDM
+
+; SETISARL
+;  Like the previous macro, except for LISL instead.
+
+	MAC SETISARL
+	lisl	[[{1}] & %111]
+	ENDM
+
+; end of macro definitions
+;----------------------------------------------------------------------------	
 
 	org $0800
 
