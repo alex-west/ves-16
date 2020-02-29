@@ -4,23 +4,98 @@ A disassembly of a game for the Fairchild Video Entertainment System.
 Build Instructions
 > dasm dodge_it.asm -f3 -ododge_it.bin
 
-Current status of the project: ~70%
+Current status of the project: ~95%
 
-Every chunk of code has been deciphered to one degree or another. What remains is various clean-up tasks: adding clear documentation, bringing the coding style up to par, answering some remaining unknowns (like what certain bitfields mean).
+Every chunk of code has been deciphered and documented. Very few questions about the game's code remain, some of which may be unanswerable. What remains is some more documentation work and a little bit of clean-up -- of particular note is ves.h, which differs significantly from the standard ves.h file out there.
 
-## Interesting Bits
+## Interesting Tidbits
 
 There are four unused characters in the character set which are, in order, "F", "A", "S", and "T". There does not appear to be any place in the code where they could be displayed, though hacking the timer to $CDEF just before it's drawn would get it to be displayed.
 
-When initializing the game, there is a table that is referenced and an index is calculated for it, but it is never read from. I have no idea what the table could have been for.
+When initializing the game, there is a table that is referenced and an index is calculated for it, but it is never read from. I suspect that this table was somehow related to enemy speed in an earlier revision of the game.
 
 There is an unused function that flashes the screen. Given how it reads from the same register that the game over procedure uses to determine who died, I suspect it was used for game overs before the iconic multicolored spiral effect was written.
 
-After the last line of code in the game, there is an unused byte (0xB2). Your guess is as good as mine regarding what it could mean.
+After the last line of code in the game, there is an unused byte (0xB2). I'm not sure what it means, but it does mirror the second byte of the game's header (0x2B). Coincidence?
 
-## Sundry Technical Notes
+## Scratchpad Map
 
-### Calling Convention
+The F8 has a 64 byte "scratchpad" of registers that functions similarly to RAM. The processor has a register called the ISAR, or Indirect Scratchpad Address Register, that allows the scratchpad to be accessed arbitrarily.
+
+There are several opcodes that can read and write what the ISAR is pointing to, and read and write the ISAR itself. Of note are the instructions LISU and LISL -- one loads the upper *octal* nybble of the ISAR, and the other loads the lower octal nybble. Given this fact, it is convenient to map out the scratchpad in an 8 by 8 grid, as shown below:
+
+<table>
+  <tr>
+    <th></th>
+    <th>0</th>
+    <th>1</th>
+    <th>2</th>
+    <th>3</th>
+    <th>4</th>
+    <th>5</th>
+    <th>6</th>
+    <th>7</th>
+  </tr>
+  <tr>
+    <td>0</td>
+    <td colspan="8">Locals</td>
+  </tr>
+  <tr>
+    <td>1</td>
+    <td>Locals<br>(cont.)</td>
+    <td>J (flag<br>storage)</td>
+    <td>Game<br>Settings</td>
+    <td>Current<br>Ball</td>
+    <td colspan="2">K (call "stack")</td>
+    <td colspan="2">Q (for jump table)</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td colspan="8">xpos</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td colspan="3">xpos (cont.)</td>
+    <td colspan="5">ypos</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td colspan="6">ypos (cont.)</td>
+    <td colspan="2">speed</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td colspan="4">speed (cont.)</td>
+    <td colspan="2">P1 Hi Score</td>
+    <td>Num<br>Balls</td>
+    <td>Delay<br>Num</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>R Wall<br>(Enemy)</td>
+    <td>R Wall<br>(Player)</td>
+    <td>L Wall</td>
+    <td>S Wall<br>(Enemy)</td>
+    <td>S Wall<br>(Player)</td>
+    <td>N Wall</td>
+    <td colspan="2">Timer</td>
+  </tr>
+  <tr>
+    <td>7</td>
+    <td>temp 1</td>
+    <td>temp 2</td>
+    <td>Explosion<br>Flag</td>
+    <td colspan="2">P2 Hi Score</td>
+    <td>Game<br>Mode</td>
+    <td colspan="2">RNG</td>
+  </tr>
+</table>
+
+The registers "temp 1" and "temp 2" are used, depending on the context, to store the controller inputs, some arguments of doBall(), or a local variable for collision().
+
+The registers used for local variables differ in their usage depending on the function. Most commonly r1 is used to hold an x position and r2 to hold a y position, but that is not always the case. Also, in some functions r9 is used as a local instead of for storing the processor flags.
+
+## Calling Convention
 
 The F8 processor does not have support for a hardware call stack to save return addresses when calling functions. Instead, it has a main program counter (PC0) and a secondary program counter (PC1). When calling a function using the opcode "PI", the return address is pushed from PC0 to PC1. When returning from a function using "POP", the return address is popped from PC1 back into PC0.
 
