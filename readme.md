@@ -18,7 +18,9 @@ There is an unused function that flashes the screen. Given how it reads from the
 
 After the last line of code in the game, there is an unused byte (0xB2). I'm not sure what it means, but it does mirror the second byte of the game's header (0x2B). Coincidence?
 
-## Scratchpad Map
+## Technical Information
+
+### Scratchpad Map
 
 The F8 has a 64 byte "scratchpad" of registers that functions similarly to RAM. The processor has a register called the ISAR, or Indirect Scratchpad Address Register, that allows the scratchpad to be accessed arbitrarily.
 
@@ -38,7 +40,7 @@ There are several opcodes that can read and write what the ISAR is pointing to, 
   </tr>
   <tr>
     <td>0</td>
-    <td colspan="8">Locals</td>
+    <td colspan="8">Locals, arguments, and returns</td>
   </tr>
   <tr>
     <td>1</td>
@@ -95,19 +97,19 @@ The registers "temp 1" and "temp 2" are used, depending on the context, to store
 
 The registers used for local variables differ in their usage depending on the function. Most commonly r1 is used to hold an x position and r2 to hold a y position, but that is not always the case. Also, in some functions r9 is used as a local instead of for storing the processor flags.
 
-## Calling Convention
+### Calling Convention and Graph
 
 The F8 processor does not have support for a hardware call stack to save return addresses when calling functions. Instead, it has a main program counter (PC0) and a secondary program counter (PC1). When calling a function using the opcode "PI", the return address is pushed from PC0 to PC1. When returning from a function using "POP", the return address is popped from PC1 back into PC0.
 
-Fortunately, the F8 has the ability to save and write to the secondary program counter (PC1). Using "LR K,P" saves it to the "K register" (really registers 12 and 13), and using "LR P,K" does the opposite. Also, using "PK" allows us to jump to wherever the "K register" points. Using these facts, we can have our function calls go two levels deep.
+Fortunately, the F8 has the ability to save and write to the secondary program counter (PC1). Using "LR K,P" saves it to the "K register" (scratchpad registers 12 and 13), and using "LR P,K" does the opposite. Also, using "PK" allows us to jump to wherever the "K register" points.
 
-A Channel F programmer is faced with two options at this point:
-  1) Create a subroutines that can push and pull from a software stack, thus either wasting several of the machine's 64 registers or necessitating on-cart RAM.
-  2) Limit function calls to 2 levels deep.
+The simplest calling convention the hardware permits allows us to go two layers deep, with each function being in a fixed layer of the call graph. This is the calling convention that Dodge It uses. With this knowledge, we can create a call graph of the game, like so:
 
-Several games, including the built-in ones, go with the first approach (usually piggybacking off the routines from the built-in games). This game, in order to maximize is register space, goes with the second approach.
+![Call Graph of Dodge It](https://github.com/alex-west/ves-16/blob/master/call%20graph.png "Call Graph of Dodge It")
 
-With this second approach, I thought it useful to make up some terminology to describe each function:
-  - Top-Level Procedures - The procedures that make up the core of the game. They can be jumped between, and other functions can jump to them, but they cannot be returned from.
+Here is an explanation of the terminology I made for the graph:
+  - Top-Level Procedures - The procedures that make up the core of the game. They can be jumped between, and other functions can jump to them (though in that case they can't be returned from).
   - Mid-Level Functions - Functions called from the top level that can call a lower level function. These functions need to be bookended by "LR K,P" and "PK" in order to work.
   - Leaf Function - Called such because they form the leaves of the call tree, being called either from the top or mid level. Since they do not call any other functions, they can be exited with a simple "POP".
+
+Note that more sophisticated calling conventions are possible. For instance, the BIOS provides functions to push and pull return addresses from a software stack on the scratchpad. However, given that the scratchpad is so small, this is not practical in many cases (such as with this game).
