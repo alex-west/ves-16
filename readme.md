@@ -4,9 +4,9 @@ A disassembly of a game for the Fairchild Video Entertainment System.
 Build Instructions
 > dasm dodge_it.asm -f3 -ododge_it.bin
 
-Current status of the project: ~95%
+Current status of the project: ~98%
 
-Every chunk of code has been deciphered and documented. Very few questions about the game's code remain, some of which may be unanswerable. What remains is some more documentation work and a little bit of clean-up -- of particular note is ves.h, which differs significantly from the standard ves.h file out there.
+Every chunk of code has been deciphered and documented. Very few questions about the game's code remain, some of which may be unanswerable. What remains is a little bit of documentation and clean-up work (though that could continue indefinitely).
 
 ## Interesting Tidbits
 
@@ -95,7 +95,7 @@ There are several opcodes that can read and write what the ISAR is pointing to, 
 
 The registers "temp 1" and "temp 2" are used, depending on the context, to store the controller inputs, some arguments of doBall(), or a local variable for collision().
 
-The registers used for local variables differ in their usage depending on the function. Most commonly r1 is used to hold an x position and r2 to hold a y position, but that is not always the case. Also, in some functions r9 is used as a local instead of for storing the processor flags.
+The registers used for local variables differ in their usage depending on the function. Most commonly r1 is used to hold an x position and r2 to hold a y position, but that is not always the case. Also, in some functions r9 ("J") is used as a local instead of for storing the processor flags.
 
 ### Calling Convention and Graph
 
